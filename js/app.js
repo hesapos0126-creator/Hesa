@@ -111,47 +111,14 @@ function router(view) {
 }
 
 function checkPendingExchangeCredit() {
-    const pendingCredit = sessionStorage.getItem('exchange_credit');
-    if (pendingCredit) {
-        try {
-            const data = JSON.parse(pendingCredit);
-            appliedReturnCredit = data.amount;
-            appliedReturnNo = data.ref;
-            updateCartUI();
-            
-            // Notification toast or alert
-            const alertDiv = document.createElement('div');
-            alertDiv.className = "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-bounce";
-            alertDiv.innerHTML = `
-                <i class="fa-solid fa-rotate text-xl"></i>
-                <div>
-                    <div class="font-bold">Exchange Credit Applied!</div>
-                    <div class="text-xs opacity-80">Rs ${appliedReturnCredit.toLocaleString()} credited from ${data.invoiceNum}</div>
-                </div>
-            `;
-            document.body.appendChild(alertDiv);
-            setTimeout(() => alertDiv.remove(), 5000);
-            
-            sessionStorage.removeItem('exchange_credit'); // Use once
-        } catch (e) {
-            console.error("Error applying pending credit:", e);
-        }
-    }
+    // Exchange credit feature disabled for security - no persistent sessions
 }
 
 // --- AUTHENTICATION & LOGGING ---
 
 async function checkAuth() {
-    const storedUser = sessionStorage.getItem('hesa_user');
-    if (storedUser) {
-        currentUser = JSON.parse(storedUser);
-        document.getElementById('current-user-name').textContent = currentUser.username;
-        document.getElementById('login-screen').classList.add('hidden');
-        router('dashboard');
-        startPendingCartsPoll();
-    } else {
-        document.getElementById('login-screen').classList.remove('hidden');
-    }
+    // No session persistence - user must login on every page load for strict security
+    document.getElementById('login-screen').classList.remove('hidden');
 }
 
 async function handleLogin(e) {
@@ -166,7 +133,6 @@ async function handleLogin(e) {
     if (user && user.password === passIn) {
         // Success
         currentUser = { id: user.id, username: user.username, role: user.role };
-        sessionStorage.setItem('hesa_user', JSON.stringify(user));
         document.getElementById('current-user-name').textContent = user.username;
         document.getElementById('login-screen').classList.add('hidden');
         router('dashboard');
@@ -184,7 +150,6 @@ function handleLogout() {
     if (confirm('Are you sure you want to logout?')) {
         logAction('LOGOUT', `User ${currentUser.username} logged out`);
         currentUser = null;
-        sessionStorage.removeItem('hesa_user');
         document.getElementById('login-username').value = '';
         document.getElementById('login-password').value = '';
         document.getElementById('login-error').classList.add('hidden');
@@ -2742,11 +2707,8 @@ function printReturnBill(sale, itemsToReturn, returnNumbers, totalCredit, return
     document.body.removeChild(printDiv);
 
     if (returnType === 'exchange') {
-        if (confirm(`✅ Return complete!\n\nExchange credit of Rs ${totalCredit.toLocaleString()} will be applied to the next bill.\n\nGo to POS now?`)) {
-            sessionStorage.setItem('exchange_credit', JSON.stringify({
-                amount: totalCredit, ref: returnNumbers.join(', '),
-                invoiceNum, customer: sale.customerName || ''
-            }));
+        if (confirm(`✅ Return complete!\n\nExchange credit must be manually applied to the next bill (security: no persistent sessions).\n\nGo to POS now?`)) {
+            // Exchange credit data not persisted - user must re-enter if needed
             router('pos');
         } else {
             document.getElementById('return-search-input').value = '';

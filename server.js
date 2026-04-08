@@ -29,8 +29,6 @@ if (!mongoURI) {
     process.exit(1);
 }
 mongoose.connect(mongoURI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
     serverSelectionTimeoutMS: 60000,
     socketTimeoutMS: 60000,
     maxPoolSize: 10,

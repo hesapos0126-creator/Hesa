@@ -2791,9 +2791,20 @@ async function generateReport() {
         endDate.setHours(23, 59, 59, 999);
     }
 
-    const allSales = await db.sales.where('timestamp').between(startDate.toISOString(), endDate.toISOString(), true, true).toArray();
-    const sales = allSales; // show all in sales report
-    const returns = await db.returns.where('returnDate').between(startDate.toISOString(), endDate.toISOString(), true, true).toArray();
+    const startTime = startDate.getTime();
+    const endTime = endDate.getTime();
+
+    const allSales = await db.sales.toArray();
+    const sales = allSales.filter(sale => {
+        const saleTime = new Date(sale.timestamp).getTime();
+        return saleTime >= startTime && saleTime <= endTime;
+    });
+
+    const allReturns = await db.returns.toArray();
+    const returns = allReturns.filter(ret => {
+        const returnTime = new Date(ret.returnDate).getTime();
+        return returnTime >= startTime && returnTime <= endTime;
+    });
 
     const totalSales = sales.reduce((sum, s) => sum + s.total, 0);
     const totalDiscounts = sales.reduce((sum, sale) => {
@@ -2906,8 +2917,15 @@ async function generateOnlineReport() {
         endDate.setHours(23, 59, 59, 999);
     }
 
-    const allSales = await db.sales.where('timestamp').between(startDate.toISOString(), endDate.toISOString(), true, true).toArray();
-    const onlineSales = allSales.filter(s => s.orderType === 'online');
+    const startTime = startDate.getTime();
+    const endTime = endDate.getTime();
+
+    const allSales = await db.sales.toArray();
+    const filteredSales = allSales.filter(sale => {
+        const saleTime = new Date(sale.timestamp).getTime();
+        return saleTime >= startTime && saleTime <= endTime;
+    });
+    const onlineSales = filteredSales.filter(s => s.orderType === 'online');
 
     const totalOnlineSales = onlineSales.reduce((sum, s) => sum + s.total, 0);
     const totalCourier = onlineSales.reduce((sum, s) => sum + (s.courierCharges || 0), 0);
@@ -3383,7 +3401,7 @@ async function handleCustomerSubmit(e) {
     const mobile = document.getElementById('cust-modal-mobile').value;
 
     if (id) {
-        await db.customers.update(parseInt(id), { name, mobile });
+        await db.customers.update(id, { name, mobile });
     } else {
         await db.customers.add({ name, mobile });
     }
@@ -4240,7 +4258,7 @@ function renderStockBatches(product) {
 
 async function handleAddStockBatch(e) {
     e.preventDefault();
-    const productId = parseInt(document.getElementById('stock-product-id').value);
+    const productId = document.getElementById('stock-product-id').value;
     const name = document.getElementById('new-batch-name').value.trim();
     const color = document.getElementById('new-batch-color').value.trim();
     const size = document.getElementById('new-batch-size').value.trim();

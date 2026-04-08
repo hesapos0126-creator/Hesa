@@ -116,6 +116,11 @@ const models = {
     pending_carts: PendingCart
 };
 
+// Root health check endpoint
+app.get('/', (req, res) => {
+    res.json({ message: 'Server is running', status: 'ok' });
+});
+
 app.post('/api/dexie/:collection/:action', async (req, res) => {
     try {
         const { collection, action } = req.params;

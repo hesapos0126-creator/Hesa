@@ -4,7 +4,18 @@ const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
-app.use(cors());
+
+// CORS Configuration
+const allowedOrigins = [
+    process.env.CLIENT_URL || 'http://localhost:3000',
+    process.env.ALLOWED_ORIGINS || 'http://localhost:3000'
+];
+app.use(cors({
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '50mb' }));
 
 // MongoDB Connection

@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -17,6 +18,9 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json({ limit: '50mb' }));
+
+// Serve static files (HTML, CSS, JS, images) from the root directory
+app.use(express.static(__dirname));
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, {
@@ -116,9 +120,9 @@ const models = {
     pending_carts: PendingCart
 };
 
-// Root health check endpoint
+// Serve main HTML file
 app.get('/', (req, res) => {
-    res.json({ message: 'Server is running', status: 'ok' });
+    res.sendFile(path.join(__dirname, 'HESA_POS.html'));
 });
 
 app.post('/api/dexie/:collection/:action', async (req, res) => {

@@ -27,8 +27,8 @@ class DBWrapper {
         };
         this._reset();
         try {
-            const API_URL = 'https://hesa-pos-backend-2026-eaf9dueheacpffac.centralindia-01.azurewebsites.net';
-            const res = await fetch(`${API_URL}/api/dexie/${this.collection}/${action}`, {
+            const API_URL = '/api';
+            const res = await fetch(`${API_URL}/dexie/${this.collection}/${action}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)

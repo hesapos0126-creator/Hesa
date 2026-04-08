@@ -23,11 +23,18 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
 // MongoDB Connection
-mongoose.connect(process.env.MONGO_URI, {
+const mongoURI = process.env.MONGO_URI;
+if (!mongoURI) {
+    console.error('[ERROR] MONGO_URI environment variable is not set');
+    process.exit(1);
+}
+mongoose.connect(mongoURI, {
     useNewUrlParser: true,
-    useUnifiedTopology: true
-}).then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB error:', err));
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 30000
+})
+.then(() => console.log('[OK] MongoDB Connected'))
+.catch(err => console.error('[ERROR] MongoDB Connection Failed:', err));
 
 // --- SCHEMAS & MODELS ---
 const productSchema = new mongoose.Schema({

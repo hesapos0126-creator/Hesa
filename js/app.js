@@ -127,22 +127,33 @@ async function handleLogin(e) {
     const passIn = document.getElementById('login-password').value;
     const errorEl = document.getElementById('login-error');
 
-    // Find user
-    const user = await db.users.where('username').equals(userIn).first();
+    try {
+        // Use dedicated login endpoint for explicit plain text password verification
+        const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: userIn, password: passIn })
+        });
 
-    if (user && user.password === passIn) {
-        // Success
-        currentUser = { id: user.id, username: user.username, role: user.role };
-        document.getElementById('current-user-name').textContent = user.username;
-        document.getElementById('login-screen').classList.add('hidden');
-        router('dashboard');
-        startPendingCartsPoll();
-        logAction('LOGIN', `User ${user.username} logged in.`);
-    } else {
-        // Fail
-        errorEl.textContent = "Invalid username or password";
+        if (response.ok) {
+            const user = await response.json();
+            // Success
+            currentUser = { id: user.id, username: user.username, role: user.role };
+            document.getElementById('current-user-name').textContent = user.username;
+            document.getElementById('login-screen').classList.add('hidden');
+            router('dashboard');
+            startPendingCartsPoll();
+            logAction('LOGIN', `User ${user.username} logged in.`);
+        } else {
+            // Fail
+            errorEl.textContent = "Invalid username or password";
+            errorEl.classList.remove('hidden');
+            await logAction('LOGIN_FAILED', `Failed login attempt for ${userIn}`);
+        }
+    } catch (err) {
+        console.error('Login error:', err);
+        errorEl.textContent = "Login failed. Please try again.";
         errorEl.classList.remove('hidden');
-        await logAction('LOGIN_FAILED', `Failed login attempt for ${userIn}`);
     }
 }
 

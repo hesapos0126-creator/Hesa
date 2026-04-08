@@ -156,6 +156,37 @@ app.get('/health', (req, res) => {
     res.status(statusCode).json(status);
 });
 
+// Login endpoint with plain text password verification
+app.post('/api/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        if (!username || !password) {
+            return res.status(400).json({ error: 'Username and password required' });
+        }
+
+        // Find user by username
+        const user = await User.findOne({ username });
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        // Plain text password comparison (development/testing only)
+        if (user.password === password) {
+            // Success - return user without exposing sensitive data
+            return res.json({
+                id: user._id.toString(),
+                username: user.username,
+                role: user.role
+            });
+        } else {
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+    } catch (err) {
+        console.error('[ERROR] Login error:', err);
+        res.status(500).json({ error: 'Login failed', details: err.message });
+    }
+});
+
 app.post('/api/dexie/:collection/:action', async (req, res) => {
     try {
         const { collection, action } = req.params;

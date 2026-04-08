@@ -249,12 +249,12 @@ async function loadUsers() {
             <td class="p-3 font-bold text-gray-800">${u.username}</td>
             <td class="p-3"><span class="px-2 py-1 rounded text-xs bg-gray-100 text-gray-600">${u.role}</span></td>
             <td class="p-3 text-right">
-                <button onclick="openChangePasswordModal(${u.id}, '${u.username}')" 
+                <button onclick="openChangePasswordModal('${u.id}', '${u.username}')" 
                     class="text-blue-600 hover:bg-blue-50 px-3 py-1 rounded text-xs font-medium mr-2">
                     Change Password
                 </button>
                 ${u.username !== 'admin' && u.id !== currentUser.id ?
-                `<button onclick="deleteUser(${u.id}, '${u.username}')" class="text-red-500 hover:bg-red-50 p-2 rounded"><i class="fa-solid fa-trash"></i></button>`
+                `<button onclick="deleteUser('${u.id}', '${u.username}')" class="text-red-500 hover:bg-red-50 p-2 rounded"><i class="fa-solid fa-trash"></i></button>`
                 : ''
             }
             </td>

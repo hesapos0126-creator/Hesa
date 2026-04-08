@@ -31,10 +31,25 @@ if (!mongoURI) {
 mongoose.connect(mongoURI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
-    serverSelectionTimeoutMS: 30000
+    serverSelectionTimeoutMS: 60000,
+    socketTimeoutMS: 60000,
+    maxPoolSize: 10,
+    minPoolSize: 2,
+    retryWrites: true,
+    w: 'majority',
+    connectTimeoutMS: 60000,
+    heartbeatFrequencyMS: 10000
 })
 .then(() => console.log('[OK] MongoDB Connected'))
-.catch(err => console.error('[ERROR] MongoDB Connection Failed:', err));
+.catch(err => {
+    console.error('[ERROR] MongoDB Connection Failed:', err.message);
+    process.exit(1);
+});
+
+// Monitor connection events
+mongoose.connection.on('connected', () => console.log('[OK] Mongoose connected to MongoDB'));
+mongoose.connection.on('disconnected', () => console.log('[WARNING] Mongoose disconnected from MongoDB'));
+mongoose.connection.on('error', (err) => console.error('[ERROR] MongoDB error:', err.message));
 
 // --- SCHEMAS & MODELS ---
 const productSchema = new mongoose.Schema({
@@ -130,6 +145,17 @@ const models = {
 // Serve main HTML file
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'HESA_POS.html'));
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    const status = {
+        status: 'ok',
+        mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+        timestamp: new Date().toISOString()
+    };
+    const statusCode = status.mongodb === 'connected' ? 200 : 503;
+    res.status(statusCode).json(status);
 });
 
 app.post('/api/dexie/:collection/:action', async (req, res) => {

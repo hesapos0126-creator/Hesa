@@ -309,7 +309,7 @@ function closeChangePasswordModal() {
 
 async function handleChangePasswordSubmit(e) {
     e.preventDefault();
-    const id = parseInt(document.getElementById('cp-user-id').value);
+    const id = document.getElementById('cp-user-id').value;
     const newPass = document.getElementById('cp-new-password').value;
 
     if (!newPass) return;
@@ -1089,7 +1089,7 @@ async function handleProductSubmit(e) {
     };
 
     if (id) {
-        await db.products.update(parseInt(id), data);
+        await db.products.update(id, data);
     } else {
         await db.products.add(data);
         productDraft = null; // Clear draft on successful Add

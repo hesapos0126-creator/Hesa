@@ -359,10 +359,38 @@ app.get('/api/users/online', async (req, res) => {
 // Create approval request
 app.post('/api/approvals/request', async (req, res) => {
     try {
-        const { action, details, requesterUsername, requesterRole, assignedRole } = req.body;
+        const { action, details, requesterUsername, requesterRole } = req.body;
         
-        if (!action || !requesterUsername || !requesterRole || !assignedRole) {
+        if (!action || !requesterUsername || !requesterRole) {
             return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        // Dynamically determine assignedRole based on online users
+        // Priority: 1) Online GM, 2) Online Admin
+        let assignedRole = null;
+        
+        try {
+            // Check for online GM
+            const gmOnline = await User.findOne({ role: 'gm', isOnline: true });
+            if (gmOnline) {
+                assignedRole = 'gm';
+            } else {
+                // If no GM, check for online Admin
+                const adminOnline = await User.findOne({ role: 'admin', isOnline: true });
+                if (adminOnline) {
+                    assignedRole = 'admin';
+                }
+            }
+        } catch (err) {
+            console.warn('[WARN] Error checking online users:', err);
+        }
+        
+        // If no one is online, default to 'gm' (requests will hold until someone comes online)
+        if (!assignedRole) {
+            assignedRole = 'gm';
+            console.log(`[INFO] No online GM/Admin found. Routing approval request to GM (pending).`);
+        } else {
+            console.log(`[INFO] Routing approval request to: ${assignedRole}`);
         }
 
         const approvalRequest = new ApprovalRequest({
@@ -374,6 +402,7 @@ app.post('/api/approvals/request', async (req, res) => {
         });
 
         await approvalRequest.save();
+        console.log(`[OK] Approval request created: ${approvalRequest._id} (assigned to ${assignedRole})`);
         return res.json({ success: true, requestId: approvalRequest._id });
     } catch (err) {
         console.error('[ERROR] Create approval request error:', err);

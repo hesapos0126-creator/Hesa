@@ -3034,30 +3034,105 @@ function updateReturnTypeStyling() {
 }
 
 async function processSelectedReturns(saleId) {
-    const checks = document.querySelectorAll('.return-item-check:checked');
-    if (checks.length === 0) { alert('Please select at least one item to return.'); return; }
+    try {
+        const checks = document.querySelectorAll('.return-item-check:checked');
+        if (checks.length === 0) { alert('Please select at least one item to return.'); return; }
 
-    const sale = await db.sales.get(saleId);
-    const reason = document.getElementById('return-reason')?.value || 'Customer Return';
-    const notes = document.getElementById('return-notes')?.value || '';
-    const returnType = document.querySelector('input[name="return-type"]:checked')?.value || 'cash';
-    const fullReason = notes ? `${reason} — ${notes}` : reason;
+        const sale = await db.sales.get(saleId);
+        const reason = document.getElementById('return-reason')?.value || 'Customer Return';
+        const notes = document.getElementById('return-notes')?.value || '';
+        const returnType = document.querySelector('input[name="return-type"]:checked')?.value || 'cash';
+        const fullReason = notes ? `${reason} — ${notes}` : reason;
 
-    const itemsToReturn = [];
-    let totalCredit = 0;
-    checks.forEach(chk => {
-        const idx = parseInt(chk.dataset.idx);
-        const item = sale.items[idx];
-        const qtyEl = document.querySelector(`.return-qty-select[data-idx="${idx}"]`);
-        const qty = qtyEl ? parseInt(qtyEl.value) : 1;
-        const price = parseFloat(chk.dataset.price);
-        itemsToReturn.push({ item, idx, qty, price });
-        totalCredit += price * qty;
-    });
+        const itemsToReturn = [];
+        let totalCredit = 0;
+        checks.forEach(chk => {
+            const idx = parseInt(chk.dataset.idx);
+            const item = sale.items[idx];
+            const qtyEl = document.querySelector(`.return-qty-select[data-idx="${idx}"]`);
+            const qty = qtyEl ? parseInt(qtyEl.value) : 1;
+            const price = parseFloat(chk.dataset.price);
+            itemsToReturn.push({ item, idx, qty, price });
+            totalCredit += price * qty;
+        });
 
-    const typeLabel = returnType === 'exchange' ? 'Exchange Credit' : 'Cash Refund';
-    if (!confirm(`Process return for ${itemsToReturn.length} item(s)?\n\nTotal Credit: Rs ${totalCredit.toLocaleString()}\nType: ${typeLabel}\nReason: ${reason}`)) return;
+        const typeLabel = returnType === 'exchange' ? 'Exchange Credit' : 'Cash Refund';
+        
+        // Check if Cashier needs approval for return
+        if (checkApprovalRequired('processReturn', currentUser.role)) {
+            console.log('[DEBUG] Return requires approval for', currentUser.role);
+            
+            if (!confirm(`Process return for ${itemsToReturn.length} item(s)?\n\nTotal Credit: Rs ${totalCredit.toLocaleString()}\nType: ${typeLabel}\nReason: ${reason}\n\n⚠️ This requires GM/Admin approval.`)) return;
+            
+            // Create approval request
+            const requestId = await requestApproval('processReturn', {
+                saleId: saleId,
+                invoiceNumber: `${sale.invoicePrefix}${sale.invoiceNumber}`,
+                itemCount: itemsToReturn.length,
+                totalCredit: totalCredit,
+                returnType: returnType,
+                reason: fullReason,
+                customerName: sale.customerName || 'Walk-in'
+            });
+            
+            if (!requestId) return;
+            
+            // Show waiting modal
+            openWaitingApprovalModal('GM or Admin', requestId);
+            
+            // Store data for execution after approval
+            window.pendingReturnData = {
+                saleId: saleId,
+                itemsToReturn: itemsToReturn,
+                returnType: returnType,
+                fullReason: fullReason,
+                totalCredit: totalCredit,
+                sale: sale
+            };
+            
+            // Poll for approval
+            await pollApprovalStatus(
+                requestId,
+                // onApproved callback
+                async () => {
+                    console.log('[DEBUG] Cashier return approval received, processing...');
+                    await executeReturn(window.pendingReturnData);
+                    window.pendingReturnData = null;
+                    showNotification('✅ Return processed (approved)', 'success');
+                },
+                // onRejected callback
+                () => {
+                    console.log('[DEBUG] Cashier return approval rejected');
+                    window.pendingReturnData = null;
+                }
+            );
+            return;
+        }
+        
+        // Admin/GM can process directly
+        if (!confirm(`Process return for ${itemsToReturn.length} item(s)?\n\nTotal Credit: Rs ${totalCredit.toLocaleString()}\nType: ${typeLabel}\nReason: ${reason}`)) return;
+        
+        await executeReturn({
+            saleId: saleId,
+            itemsToReturn: itemsToReturn,
+            returnType: returnType,
+            fullReason: fullReason,
+            totalCredit: totalCredit,
+            sale: sale
+        });
+        showNotification('✅ Return processed successfully', 'success');
+    } catch (err) {
+        console.error('[ERROR] processSelectedReturns failed:', err);
+        showNotification('Error processing return: ' + err.message, 'error');
+    }
+}
 
+/**
+ * Execute return processing (used after approval or by non-Cashier users)
+ */
+async function executeReturn(returnData) {
+    const { saleId, itemsToReturn, returnType, fullReason, totalCredit, sale } = returnData;
+    
     const returnNumbers = [];
     await db.transaction('rw', db.products, db.returns, async () => {
         for (const { item, idx, qty, price } of itemsToReturn) {
@@ -3093,6 +3168,9 @@ async function processSelectedReturns(saleId) {
             }
         }
     });
+
+    // Log the return action
+    await logAction('PROCESS_RETURN', `${returnNumbers.length} return(s) processed by ${currentUser.username} (${currentUser.role}): ${returnNumbers.join(', ')}`);
 
     printReturnBill(sale, itemsToReturn, returnNumbers, totalCredit, returnType, fullReason);
 }
@@ -4243,6 +4321,8 @@ function checkApprovalRequired(action, userRole) {
  */
 async function requestApproval(action, details) {
     try {
+        console.log(`[DEBUG] Creating approval request for action: ${action} by ${currentUser.username}`);
+        
         const response = await fetch('/api/approvals/request', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4251,15 +4331,20 @@ async function requestApproval(action, details) {
                 details: details,
                 requesterUsername: currentUser.username,
                 requesterRole: currentUser.role
+                // Note: assignedRole is now determined by backend based on online users
             })
         });
         
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || `HTTP ${response.status}`);
+        }
         
         const result = await response.json();
+        console.log(`[DEBUG] Approval request created: ${result.requestId}`);
         return result.requestId;
     } catch (err) {
-        console.error('Approval request failed:', err);
+        console.error('[ERROR] Approval request failed:', err);
         showNotification('Failed to create approval request: ' + err.message, 'error');
         return null;
     }

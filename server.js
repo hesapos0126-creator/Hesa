@@ -98,7 +98,9 @@ const Customer = mongoose.model('Customer', customerSchema);
 const userSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    role: { type: String, required: true }
+    role: { type: String, required: true },
+    isOnline: { type: Boolean, default: false },
+    lastLogin: { type: Date, default: null }
 }, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
@@ -172,7 +174,16 @@ app.post('/api/login', async (req, res) => {
 
         // Plain text password comparison (development/testing only)
         if (user.password === password) {
-            // Success - return user without exposing sensitive data
+            // Success - set user online and record last login
+            await User.updateOne(
+                { _id: user._id },
+                { 
+                    isOnline: true,
+                    lastLogin: new Date()
+                }
+            );
+
+            // Return user without exposing sensitive data
             return res.json({
                 id: user._id.toString(),
                 username: user.username,
@@ -264,6 +275,51 @@ app.post('/api/dexie/:collection/:action', async (req, res) => {
     } catch (err) {
         console.error('API Error:', err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// --- LOGOUT ENDPOINT ---
+app.post('/api/logout', async (req, res) => {
+    try {
+        const { username } = req.body;
+        if (!username) {
+            return res.status(400).json({ error: 'Username required' });
+        }
+
+        // Set user offline
+        await User.updateOne(
+            { username },
+            { isOnline: false }
+        );
+
+        return res.json({ success: true });
+    } catch (err) {
+        console.error('[ERROR] Logout error:', err);
+        res.status(500).json({ error: 'Logout failed', details: err.message });
+    }
+});
+
+// --- GET ONLINE USERS ENDPOINT ---
+app.get('/api/users/online', async (req, res) => {
+    try {
+        // Get all users where isOnline is true
+        const onlineUsers = await User.find(
+            { isOnline: true },
+            { username: 1, role: 1, lastLogin: 1 }
+        ).lean();
+
+        // Format the response
+        const formattedUsers = onlineUsers.map(user => ({
+            id: user._id.toString(),
+            username: user.username,
+            role: user.role,
+            lastLogin: user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Unknown'
+        }));
+
+        return res.json(formattedUsers);
+    } catch (err) {
+        console.error('[ERROR] Get online users error:', err);
+        res.status(500).json({ error: 'Failed to fetch online users', details: err.message });
     }
 });
 

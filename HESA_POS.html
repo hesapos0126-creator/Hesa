@@ -864,6 +864,33 @@
                     </div>
                 </div>
 
+                <!-- Online Users -->
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-10 h-10 bg-green-100 text-green-600 rounded-xl flex items-center justify-center text-lg">
+                            <i class="fa-solid fa-circle-dot"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-800">Online Users</h3>
+                            <p class="text-xs text-gray-500">Users currently logged into the system</p>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-600 text-sm">
+                                    <th class="p-3 rounded-l-lg">Username</th>
+                                    <th class="p-3">Role</th>
+                                    <th class="p-3 rounded-r-lg">Last Login</th>
+                                </tr>
+                            </thead>
+                            <tbody id="online-users-table" class="text-sm">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
                 <!-- Logs -->
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                     <h3 class="text-lg font-bold text-gray-800 mb-6">System Access Logs</h3>

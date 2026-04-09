@@ -256,6 +256,7 @@ function router(view) {
     if (view === 'logs') {
         loadLogs();
         loadUsers();
+        loadOnlineUsers();
     }
     if (view === 'floor-sales') {
         document.getElementById('floor-sender-name').textContent = currentUser.username;
@@ -318,8 +319,21 @@ async function handleLogin(e) {
     }
 }
 
-function handleLogout() {
+async function handleLogout() {
     if (confirm('Are you sure you want to logout?')) {
+        try {
+            // Call logout API to mark user as offline
+            if (currentUser) {
+                await fetch('/api/logout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: currentUser.username })
+                });
+            }
+        } catch (err) {
+            console.error('Error calling logout API:', err);
+        }
+
         logAction('LOGOUT', `User ${currentUser.username} logged out`);
         currentUser = null;
         document.getElementById('login-username').value = '';
@@ -398,6 +412,51 @@ async function loadUsers() {
         `;
         tbody.appendChild(tr);
     });
+}
+
+// --- LOAD ONLINE USERS ---
+async function loadOnlineUsers() {
+    try {
+        const response = await fetch('/api/users/online');
+        if (!response.ok) {
+            throw new Error('Failed to fetch online users');
+        }
+
+        const onlineUsers = await response.json();
+        const tbody = document.getElementById('online-users-table');
+        
+        if (!tbody) {
+            console.warn('Online users table element not found');
+            return;
+        }
+
+        tbody.innerHTML = '';
+
+        if (onlineUsers.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center py-6 text-gray-400 italic">No users currently online</td></tr>';
+            return;
+        }
+
+        onlineUsers.forEach(u => {
+            const tr = document.createElement('tr');
+            tr.className = 'border-b border-gray-50 hover:bg-green-50 transition-colors';
+            tr.innerHTML = `
+                <td class="p-3 font-bold text-gray-800 flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    ${u.username}
+                </td>
+                <td class="p-3"><span class="px-2 py-1 rounded text-xs bg-brand-gold/10 text-brand-dark font-medium">${u.role}</span></td>
+                <td class="p-3 text-sm text-gray-500">${u.lastLogin}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch (err) {
+        console.error('Error loading online users:', err);
+        const tbody = document.getElementById('online-users-table');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-red-500 text-sm">Error loading online users</td></tr>';
+        }
+    }
 }
 
 function openAddUserModal() {

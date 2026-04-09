@@ -461,6 +461,97 @@ app.get('/api/approvals/status/:id', async (req, res) => {
 });
 
 // Approve/Reject approval request
+/**
+ * ATOMIC EXECUTION: Execute the approved action on the database
+ * Returns true if execution successful, false otherwise
+ */
+async function executeApprovedAction(actionType, details) {
+    try {
+        console.log(`[EXEC] 🚀 Executing approved action: ${actionType}`, details);
+        
+        switch(actionType) {
+            case 'deleteProduct': {
+                const { productId } = details;
+                if (!productId) throw new Error('productId missing from details');
+                console.log(`[EXEC] 🗑️  Deleting product: ${productId}`);
+                const result = await Product.findByIdAndDelete(productId);
+                if (!result) throw new Error('Product not found');
+                console.log(`[EXEC] ✅ Product deleted successfully: ${productId}`);
+                return true;
+            }
+            
+            case 'editProduct': {
+                const { productId, changes } = details;
+                if (!productId || !changes) throw new Error('productId or changes missing from details');
+                console.log(`[EXEC] ✏️  Updating product: ${productId}`, changes);
+                const result = await Product.findByIdAndUpdate(productId, changes, { new: true });
+                if (!result) throw new Error('Product not found');
+                console.log(`[EXEC] ✅ Product updated successfully: ${productId}`);
+                return true;
+            }
+            
+            case 'processReturn': {
+                const { saleId, itemsToReturn, returnType, fullReason, totalCredit } = details;
+                if (!saleId || !itemsToReturn) throw new Error('saleId or itemsToReturn missing from details');
+                console.log(`[EXEC] 🔄 Processing return for sale: ${saleId}, items: ${itemsToReturn.length}`);
+                
+                // Find the sale
+                const sale = await Sale.findById(saleId);
+                if (!sale) throw new Error('Sale not found');
+                
+                // Process each return
+                const returnNumbers = [];
+                for (const returnItem of itemsToReturn) {
+                    // Create return record
+                    const returnCount = await Return.countDocuments();
+                    const returnNumber = `RET-${1000 + returnCount + 1}`;
+                    returnNumbers.push(returnNumber);
+                    
+                    const newReturn = new Return({
+                        returnNumber,
+                        originalInvoiceNumber: `${sale.invoicePrefix}${sale.invoiceNumber}`,
+                        originalSaleId: saleId,
+                        barcode: returnItem.barcode,
+                        itemName: returnItem.name,
+                        returnDate: new Date(),
+                        qty: returnItem.qty,
+                        refundAmount: returnItem.price * returnItem.qty,
+                        reason: fullReason,
+                        returnType,
+                        customerName: sale.customerName || 'Walk-in',
+                        isUsed: false
+                    });
+                    await newReturn.save();
+                    
+                    // Update product stock
+                    if (!returnItem.isCustom) {
+                        const product = await Product.findById(returnItem.productId);
+                        if (product) {
+                            const newTotalStock = product.stock + returnItem.qty;
+                            const newSizeStock = product.sizeStock ? { ...product.sizeStock } : {};
+                            if (returnItem.size && newSizeStock[returnItem.size] !== undefined) {
+                                newSizeStock[returnItem.size] += returnItem.qty;
+                            }
+                            await Product.findByIdAndUpdate(returnItem.productId, { 
+                                stock: newTotalStock, 
+                                sizeStock: newSizeStock 
+                            });
+                        }
+                    }
+                }
+                console.log(`[EXEC] ✅ Return processed successfully, return numbers: ${returnNumbers.join(', ')}`);
+                return true;
+            }
+            
+            default:
+                throw new Error(`Unknown action type: ${actionType}`);
+        }
+    } catch (err) {
+        console.error(`[EXEC] ❌ Execution failed for ${actionType}:`, err);
+        return false;
+    }
+}
+
 app.post('/api/approvals/respond', async (req, res) => {
     try {
         const { requestId, approverUsername, approverPassword, action } = req.body;
@@ -486,6 +577,25 @@ app.post('/api/approvals/respond', async (req, res) => {
             return res.status(401).json({ error: 'Invalid password' });
         }
 
+        // CRITICAL: If APPROVED, execute the action BEFORE marking as complete
+        let executionSuccess = false;
+        let auditStatus = 'REJECTED';
+        
+        if (action === 'approve') {
+            console.log(`[APPROVAL] 🔄 Processing approval for request: ${requestId}, action: ${request.action}`);
+            executionSuccess = await executeApprovedAction(request.action, request.details);
+            
+            if (!executionSuccess) {
+                console.error(`[APPROVAL] ❌ Execution failed, rejecting approval`);
+                return res.status(500).json({ 
+                    error: 'Failed to execute approved action', 
+                    details: 'The action could not be completed in the database'
+                });
+            }
+            auditStatus = 'EXECUTED';
+            console.log(`[APPROVAL] ✅ Action executed successfully`);
+        }
+
         // Update request status
         const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
         request.status = newStatus;
@@ -493,7 +603,7 @@ app.post('/api/approvals/respond', async (req, res) => {
         request.respondedAt = new Date();
         await request.save();
 
-        // Create audit log
+        // Create audit log ONLY AFTER successful execution
         const auditLog = new AuditLog({
             action: request.action,
             requesterUsername: request.requesterUsername,
@@ -501,10 +611,11 @@ app.post('/api/approvals/respond', async (req, res) => {
             approverUsername: approverUsername,
             approverRole: approver.role,
             details: request.details,
-            status: newStatus === 'APPROVED' ? 'EXECUTED' : 'REJECTED'
+            status: auditStatus
         });
         await auditLog.save();
 
+        console.log(`[APPROVAL] ✅ Approval completed: ${newStatus}, audit status: ${auditStatus}`);
         return res.json({ success: true, status: newStatus });
     } catch (err) {
         console.error('[ERROR] Respond to approval error:', err);

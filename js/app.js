@@ -1573,11 +1573,10 @@ async function handleProductSubmit(e) {
             // Poll for approval
             await pollApprovalStatus(
                 requestId,
-                // onApproved callback
+                // onApproved callback - BACKEND ALREADY EXECUTED THE CHANGE
                 async () => {
-                    console.log('[DEBUG] Approval received, updating product');
-                    await db.products.update(id, data);
-                    await logAction('EDIT_PRODUCT', `Product ${data.name} edited by ${currentUser.username} (Cashier).`);
+                    console.log('[DEBUG] Approval received - backend already updated product');
+                    await logAction('EDIT_PRODUCT', `Product ${data.name} edited by ${currentUser.username} (Cashier) - APPROVED.`);
                     closeProductModal(true);
                     loadInventory();
                     showNotification('✅ Product updated successfully', 'success');
@@ -3245,7 +3244,16 @@ async function processSelectedReturns(saleId) {
                 totalCredit: totalCredit,
                 returnType: returnType,
                 reason: fullReason,
-                customerName: sale.customerName || 'Walk-in'
+                customerName: sale.customerName || 'Walk-in',
+                itemsToReturn: itemsToReturn.map(({item, idx, qty, price}) => ({
+                    barcode: item.barcode,
+                    name: item.name,
+                    qty: qty,
+                    price: price,
+                    productId: item.id,
+                    isCustom: item.isCustom,
+                    size: item.size
+                }))
             });
             
             if (!requestId) return;
@@ -3253,31 +3261,24 @@ async function processSelectedReturns(saleId) {
             // Show waiting modal
             openWaitingApprovalModal('GM or Admin', requestId);
             
-            // Store data for execution after approval
-            window.pendingReturnData = {
-                saleId: saleId,
-                itemsToReturn: itemsToReturn,
-                returnType: returnType,
-                fullReason: fullReason,
-                totalCredit: totalCredit,
-                sale: sale
-            };
-            
             // Poll for approval
             await pollApprovalStatus(
                 requestId,
-                // onApproved callback
+                // onApproved callback - BACKEND ALREADY PROCESSED THE RETURN
                 async () => {
-                    console.log('[DEBUG] Cashier return approval received, processing...');
-                    await executeReturn(window.pendingReturnData);
-                    window.pendingReturnData = null;
-                    showNotification('✅ Return processed (approved)', 'success');
+                    console.log('[DEBUG] Return approval received - backend already processed');
+                    await logAction('PROCESS_RETURN', `Return processed by ${currentUser.username} (Cashier) - APPROVED.`);
+                    showNotification('✅ Return processed successfully', 'success');
+                    loadSalesTable(); // Reload sales data
+                    closeReturnModal(true);
                 },
                 // onRejected callback
                 () => {
-                    console.log('[DEBUG] Cashier return approval rejected');
-                    window.pendingReturnData = null;
+                    console.log('[DEBUG] Return approval rejected');
+                    closeReturnModal(false);
+                    loadSalesTable();
                 }
+            );
             );
             return;
         }
@@ -4936,13 +4937,16 @@ async function deleteProductWithApproval(id) {
         // Poll for approval
         await pollApprovalStatus(
             requestId,
-            // onApproved callback
+            // onApproved callback - BACKEND ALREADY DELETED THE PRODUCT
             async () => {
-                await db.products.delete(id);
+                console.log('[DEBUG] Delete approval received - backend already deleted product');
+                await logAction('DELETE_PRODUCT', `Product deleted by ${currentUser.username} (Cashier) - APPROVED.`);
                 loadInventory();
+                showNotification('✅ Product deleted successfully', 'success');
             },
             // onRejected callback
             () => {
+                console.log('[DEBUG] Delete approval rejected');
                 loadInventory();
             }
         );

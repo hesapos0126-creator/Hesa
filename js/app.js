@@ -4530,35 +4530,55 @@ async function requestApproval(action, details) {
  * @param {function} onRejected - Callback when request is rejected
  * @param {number} maxPolls - Maximum number of polls (will timeout after ~10min at 2sec interval)
  */
+/**
+ * Poll approval status for a given request
+ * @param {string} requestId - Approval request ID
+ * @param {function} onApproved - Callback when request is approved
+ * @param {function} onRejected - Callback when request is rejected
+ * @param {number} maxPolls - Maximum number of polls (will timeout after ~10min at 2sec interval)
+ */
 async function pollApprovalStatus(requestId, onApproved, onRejected, maxPolls = 300) {
     let pollCount = 0;
+    console.log(`[POLLING] 🚀 Started polling approval status for request: ${requestId}`);
     
     const checkStatus = setInterval(async () => {
         pollCount++;
         
         try {
             const response = await fetch(`/api/approvals/status/${requestId}`);
+            
+            if (!response.ok) {
+                console.error(`[POLLING] ❌ API error ${response.status}`);
+                return;
+            }
+            
             const result = await response.json();
+            console.log(`[POLLING] 🔍 Poll #${pollCount}: Status = ${result.status}`);
             
             if (result.status === 'APPROVED') {
+                console.log('[POLLING] ✅ APPROVED! Clearing interval and hiding modal');
                 clearInterval(checkStatus);
                 closeWaitingApprovalModal();
+                console.log('[POLLING] ✅ Modal hidden. Calling onApproved callback');
                 if (onApproved) onApproved();
                 showNotification('✅ Approval granted!', 'success');
             } else if (result.status === 'REJECTED') {
+                console.log('[POLLING] ❌ REJECTED! Clearing interval and hiding modal');
                 clearInterval(checkStatus);
                 closeWaitingApprovalModal();
+                console.log('[POLLING] ❌ Modal hidden. Calling onRejected callback');
                 if (onRejected) onRejected();
                 showNotification('❌ Approval rejected', 'error');
             } else if (pollCount >= maxPolls) {
                 // Timeout after 10 minutes
+                console.log('[POLLING] ⏰ TIMEOUT! Max polls reached (' + maxPolls + ')');
                 clearInterval(checkStatus);
                 closeWaitingApprovalModal();
                 if (onRejected) onRejected();
                 showNotification('⏰ Approval request expired (10 minutes timeout)', 'error');
             }
         } catch (err) {
-            console.error('Poll error:', err);
+            console.error('[POLLING] ❌ Poll error:', err);
         }
     }, 2000); // Poll every 2 seconds
 }
@@ -4575,6 +4595,9 @@ function openWaitingApprovalModal(assignedRole, requestId) {
         document.getElementById('approval-request-id').value = requestId;
         modal.classList.remove('hidden');
         modal.classList.add('flex');
+        console.log('[MODAL] 💬 Waiting approval modal opened for request:', requestId);
+    } else {
+        console.error('[MODAL] ❌ modal-waiting-approval element not found!');
     }
 }
 
@@ -4584,8 +4607,12 @@ function openWaitingApprovalModal(assignedRole, requestId) {
 function closeWaitingApprovalModal() {
     const modal = document.getElementById('modal-waiting-approval');
     if (modal) {
+        console.log('[MODAL] 🔒 Hiding waiting approval modal');
         modal.classList.add('hidden');
         modal.classList.remove('flex');
+        console.log('[MODAL] ✅ Modal classes updated - should be hidden now');
+    } else {
+        console.error('[MODAL] ❌ modal-waiting-approval element not found when closing!');
     }
 }
 

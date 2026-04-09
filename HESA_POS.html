@@ -318,7 +318,7 @@
                 </div>
                 <div class="relative">
                     <input type="text" id="global-search" placeholder="Search products..."
-                        class="pl-10 pr-4 py-2 border border-gray-200 rounded-full text-sm focus:outline-none focus:border-brand-gold w-64 bg-gray-50">
+                        class="pl-10 pr-4 py-2 border border-gray-200 rounded-full text-sm focus:outline-none focus:border-brand-gold w-full md:w-64 bg-gray-50">
                     <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
                 </div>
                 <button
@@ -600,7 +600,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="flex-1 overflow-y-auto pr-2">
+                <div class="flex-1 overflow-x-auto -mx-3 md:mx-0">
                     <table class="w-full text-left border-collapse">
                         <thead class="sticky top-0 bg-white z-10">
                             <tr class="bg-gray-50 text-gray-600">
@@ -1140,13 +1140,13 @@
                 </button>
             </form>
 
-            <div class="flex-1 overflow-y-auto">
+            <div class="flex-1 overflow-x-auto -mx-3 md:mx-0">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-gray-50 text-gray-600 text-sm border-b border-gray-100">
-                            <th class="p-3 font-medium rounded-tl-lg">Range</th>
-                            <th class="p-3 font-medium">Category Name</th>
-                            <th class="p-3 text-right font-medium rounded-tr-lg">Actions</th>
+                            <th class="p-2 md:p-3 font-medium rounded-tl-lg">Range</th>
+                            <th class="p-2 md:p-3 font-medium">Category Name</th>
+                            <th class="p-2 md:p-3 text-right font-medium rounded-tr-lg">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="code-ranges-table" class="text-sm">
@@ -1708,13 +1708,13 @@
 
                 <div>
                     <h4 class="font-bold text-sm text-gray-800 mb-2">Items</h4>
-                    <div class="border border-gray-100 rounded-xl overflow-hidden">
+                    <div class="border border-gray-100 rounded-xl overflow-x-auto -mx-3 md:mx-0">
                         <table class="w-full text-sm text-left">
                             <thead class="bg-gray-50 text-gray-500 text-xs uppercase">
                                 <tr>
-                                    <th class="p-3">Item</th>
-                                    <th class="p-3 text-center">Qty</th>
-                                    <th class="p-3 text-right">Total</th>
+                                    <th class="p-2 md:p-3">Item</th>
+                                    <th class="p-2 md:p-3 text-center">Qty</th>
+                                    <th class="p-2 md:p-3 text-right">Total</th>
                                 </tr>
                             </thead>
                             <tbody id="view-order-items" class="divide-y divide-gray-100">
@@ -1942,14 +1942,14 @@
             </div>
 
             <h4 class="text-xs font-bold text-gray-500 uppercase mb-3 tracking-widest">Stock History / Batches</h4>
-            <div class="flex-1 overflow-y-auto pr-2">
+            <div class="flex-1 overflow-x-auto -mx-3 md:mx-0">
                 <table class="w-full text-sm text-left border-collapse">
                     <thead class="bg-gray-50 text-gray-500 text-xs sticky top-0">
                         <tr>
-                            <th class="p-3 font-medium">Date</th>
-                            <th class="p-3 font-medium">Batch / Color / Size</th>
-                            <th class="p-3 font-medium text-center">Qty</th>
-                            <th class="p-3 font-medium text-right">Action</th>
+                            <th class="p-2 md:p-3 font-medium">Date</th>
+                            <th class="p-2 md:p-3 font-medium">Batch / Color / Size</th>
+                            <th class="p-2 md:p-3 font-medium text-center">Qty</th>
+                            <th class="p-2 md:p-3 font-medium text-right">Action</th>
                         </tr>
                     </thead>
                     <tbody id="stock-batches-table" class="divide-y divide-gray-100">

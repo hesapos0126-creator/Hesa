@@ -4525,6 +4525,10 @@ function openApproveActionModal(request) {
         
         console.log('[MODAL] ✅ Modal element found');
         
+        // CRITICAL FIX: Set global currentApprovalRequestId so submitApprovalDecision can find it
+        currentApprovalRequestId = request._id || request.id;
+        console.log('[MODAL] ✅ Set global currentApprovalRequestId:', currentApprovalRequestId);
+        
         // Populate modal fields - with error checks
         const fields = {
             'approve-action-type': request.action,
@@ -4543,7 +4547,7 @@ function openApproveActionModal(request) {
             }
         }
         
-        // Set hidden request ID field
+        // Set hidden request ID field (for backup compatibility)
         const requestIdField = document.getElementById('approve-request-id');
         if (requestIdField) {
             requestIdField.value = request._id || request.id;
@@ -4552,13 +4556,13 @@ function openApproveActionModal(request) {
             console.warn('[MODAL] ⚠️ Request ID field not found');
         }
         
-        // Clear password field
-        const passwordField = document.getElementById('approve-password-input');
+        // CRITICAL FIX: Use correct password field ID 'approver-password' (not 'approve-password-input')
+        const passwordField = document.getElementById('approver-password');
         if (passwordField) {
             passwordField.value = '';
             console.log('[MODAL] ✅ Cleared password field');
         } else {
-            console.warn('[MODAL] ⚠️ Password field not found');
+            console.warn('[MODAL] ⚠️ Password field not found with id "approver-password"');
         }
         
         // Remove hidden class and add flex (Tailwind display)
@@ -4579,15 +4583,22 @@ function openApproveActionModal(request) {
 }
 
 /**
- * Close approve action modal
+ * Close/Minimize approve action modal WITHOUT rejecting the request
+ * Allows GM to dismiss temporarily and handle later via notification bell
  */
 function closeApproveActionModal() {
     const modal = document.getElementById('modal-approve-action');
     if (modal) {
         modal.classList.add('hidden');
         modal.classList.remove('flex');
+        console.log('[MODAL] Modal minimized/dismissed');
     }
 }
+
+/**
+ * Make closeApproveActionModal available globally for HTML onclick
+ */
+window.closeApproveActionModal = closeApproveActionModal;
 
 /**
  * Handle approval form submission (Approve button)

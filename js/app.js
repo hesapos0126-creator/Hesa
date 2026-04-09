@@ -4745,6 +4745,57 @@ function stopApprovalPolling() {
 }
 
 /**
+ * Manually check for pending approvals via notification bell button
+ * Opens approval modal if pending requests exist
+ */
+async function checkManualNotifications() {
+    try {
+        console.log('[MANUAL NOTIFICATION] User clicked notification bell');
+        
+        // Step 1: Check if user is GM or Admin
+        if (!currentUser || !['gm', 'admin'].includes(currentUser.role)) {
+            console.log('[MANUAL NOTIFICATION] User is not GM/Admin (role:', currentUser?.role, ')');
+            alert('You have no new notifications.');
+            return;
+        }
+        
+        console.log(`[MANUAL NOTIFICATION] Checking for pending approvals for ${currentUser.role}...`);
+        
+        // Step 2: Fetch pending requests for this role
+        const res = await fetch('/api/approvals/pending?role=' + currentUser.role);
+        
+        if (!res.ok) {
+            console.error('[MANUAL NOTIFICATION] Failed to fetch pending approvals, status:', res.status);
+            alert('Failed to check for approvals. Please try again.');
+            return;
+        }
+        
+        const data = await res.json();
+        console.log(`[MANUAL NOTIFICATION] Found ${data?.length || 0} pending request(s)`);
+        
+        // Step 3: If no pending requests, show message
+        if (!data || data.length === 0) {
+            console.log('[MANUAL NOTIFICATION] No pending approvals');
+            alert('No pending approvals at the moment.');
+            return;
+        }
+        
+        // Step 4: If there are pending requests, open modal for first one
+        const firstRequest = data[0];
+        console.log('[MANUAL NOTIFICATION] Opening modal for pending request:', firstRequest._id);
+        
+        // Populate modal with request details
+        openApproveActionModal(firstRequest);
+        
+        console.log('[MANUAL NOTIFICATION] ✅ Modal opened successfully');
+        
+    } catch (err) {
+        console.error('[MANUAL NOTIFICATION] Error checking notifications:', err);
+        alert('Error checking for approvals: ' + err.message);
+    }
+}
+
+/**
  * Load and render audit logs in Reports section
  */
 async function loadAuditLogs() {

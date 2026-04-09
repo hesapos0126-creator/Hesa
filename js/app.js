@@ -9,6 +9,146 @@ let currentBarcodeProductId = null;
 let pendingCartsPollInterval = null;
 let floorCart = []; // Independent cart for Sales Mode
 
+// RBAC Global Flags (initialized false, set by applyRBAC())
+window.defaultModule = 'dashboard';
+window.hideInventoryActions = false;
+window.hideReportsActions = false;
+window.hideCustomerActions = false;
+window.hidePOSActions = false;
+
+// --- ROLE-BASED ACCESS CONTROL (RBAC) PERMISSIONS MATRIX ---
+const rolePermissions = {
+    admin: {
+        modules: ['dashboard', 'pos', 'inventory', 'returns', 'floor-sales', 'customers', 'reports', 'logs'],
+        viewOnly: []
+    },
+    gm: {
+        modules: ['dashboard', 'pos', 'inventory', 'returns', 'floor-sales', 'customers', 'reports'],
+        viewOnly: []
+    },
+    cashier: {
+        modules: ['dashboard', 'pos', 'returns', 'inventory', 'customers', 'reports'],
+        viewOnly: ['inventory', 'reports']
+    },
+    staff: {
+        modules: ['dashboard', 'inventory', 'floor-sales', 'customers', 'reports'],
+        viewOnly: []
+    },
+    salesperson: {
+        modules: ['dashboard', 'floor-sales', 'inventory'],
+        viewOnly: ['inventory']
+    },
+    'inventory manager': {
+        modules: ['inventory'],
+        viewOnly: []
+    }
+};
+
+/**
+ * Apply Role-Based Access Control to the UI
+ * @param {string} userRole - The user's role (case-insensitive)
+ */
+function applyRBAC(userRole) {
+    // Normalize role to lowercase
+    const normalizedRole = userRole.toLowerCase().trim();
+    const permissions = rolePermissions[normalizedRole];
+
+    if (!permissions) {
+        console.warn(`Unknown role: ${userRole}. Denying all access.`);
+        document.querySelectorAll('.nav-item').forEach(el => el.style.display = 'none');
+        return;
+    }
+
+    // Step 1: Hide/Show navigation menu items based on allowed modules
+    const navItems = {
+        'dashboard': 'nav-dashboard',
+        'pos': 'nav-pos',
+        'inventory': 'nav-inventory',
+        'returns': 'nav-returns',
+        'floor-sales': 'nav-floor-sales',
+        'customers': 'nav-customers',
+        'reports': 'nav-reports',
+        'logs': 'nav-logs'
+    };
+
+    // Hide all nav items first
+    Object.values(navItems).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    // Show only permitted nav items
+    permissions.modules.forEach(module => {
+        const navId = navItems[module];
+        if (navId) {
+            const el = document.getElementById(navId);
+            if (el) el.style.display = '';
+        }
+    });
+
+    // Step 2: Apply View-Only restrictions (hide action buttons)
+    applyViewOnlyRestrictions(permissions.viewOnly);
+
+    // Step 3: Set default route if Dashboard is not accessible
+    const defaultModule = permissions.modules.includes('dashboard') 
+        ? 'dashboard' 
+        : permissions.modules[0];
+
+    // Store default module for use after login
+    window.defaultModule = defaultModule;
+}
+
+/**
+ * Hide action buttons for modules with view-only access
+ * @param {Array<string>} viewOnlyModules - List of modules that are view-only
+ */
+function applyViewOnlyRestrictions(viewOnlyModules) {
+    // Hide action buttons for Inventory (if view-only)
+    if (viewOnlyModules.includes('inventory')) {
+        // Hide Add Product button
+        const addProductBtn = document.querySelector('button[onclick="openProductModal()"]');
+        if (addProductBtn) {
+            addProductBtn.style.display = 'none';
+        }
+
+        // Hide edit/delete buttons in inventory table (will be applied after table renders)
+        window.hideInventoryActions = true;
+    } else {
+        window.hideInventoryActions = false;
+    }
+
+    // Hide action buttons for Reports (if view-only)
+    if (viewOnlyModules.includes('reports')) {
+        // Hide Clear Reports button (admin-only anyway, but double-check)
+        const clearBtn = document.getElementById('btn-clear-reports');
+        if (clearBtn) clearBtn.style.display = 'none';
+
+        window.hideReportsActions = true;
+    } else {
+        window.hideReportsActions = false;
+    }
+
+    // Hide action buttons for Customers (if view-only)
+    if (viewOnlyModules.includes('customers')) {
+        const addCustomerBtn = document.querySelector('button[onclick="openCustomerModal()"]');
+        if (addCustomerBtn) {
+            addCustomerBtn.style.display = 'none';
+        }
+        window.hideCustomerActions = true;
+    } else {
+        window.hideCustomerActions = false;
+    }
+
+    // Hide action buttons for POS (if view-only)
+    if (viewOnlyModules.includes('pos')) {
+        const checkoutBtn = document.querySelector('button[onclick="openCheckoutModal()"]');
+        if (checkoutBtn) checkoutBtn.style.display = 'none';
+        window.hidePOSActions = true;
+    } else {
+        window.hidePOSActions = false;
+    }
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
@@ -38,6 +178,20 @@ document.addEventListener('DOMContentLoaded', () => {
 // --- ROUTER ---
 function router(view) {
     if (!currentUser) {
+        return;
+    }
+
+    // === RBAC CHECK: Verify user has access to this module ===
+    const userRole = currentUser.role.toLowerCase().trim();
+    const permissions = rolePermissions[userRole];
+    
+    if (!permissions || !permissions.modules.includes(view)) {
+        console.warn(`Access denied to module: ${view}`);
+        // Redirect to default accessible module
+        const defaultView = window.defaultModule || 'dashboard';
+        if (view !== defaultView) {
+            router(defaultView);
+        }
         return;
     }
 
@@ -141,7 +295,14 @@ async function handleLogin(e) {
             currentUser = { id: user.id, username: user.username, role: user.role };
             document.getElementById('current-user-name').textContent = user.username;
             document.getElementById('login-screen').classList.add('hidden');
-            router('dashboard');
+            
+            // === APPLY RBAC IMMEDIATELY AFTER LOGIN ===
+            applyRBAC(currentUser.role);
+            
+            // Route to default module (dashboard or first accessible module)
+            const defaultView = window.defaultModule || 'dashboard';
+            router(defaultView);
+            
             startPendingCartsPoll();
             logAction('LOGIN', `User ${user.username} logged in.`);
         } else {
@@ -525,6 +686,23 @@ function renderInventoryTable(products, ranges) {
         groupProducts.forEach(p => {
             const tr = document.createElement('tr');
             tr.className = 'border-b border-gray-50 hover:bg-gray-50 transition-colors';
+            
+            // Build action buttons based on view-only status
+            let actionButtons = `
+                <button onclick="openManageStockModal(${p.id})" class="text-green-600 hover:bg-green-50 p-2 rounded" title="Manage Stock (Arrivals)"><i class="fa-solid fa-boxes-packing"></i></button>
+                <button onclick="editProduct(${p.id})" class="text-blue-500 hover:bg-blue-50 p-2 rounded" title="Edit Product"><i class="fa-solid fa-pen"></i></button>
+                <button onclick="openBarcodeModal(${p.id})" class="text-orange-500 hover:bg-orange-50 p-2 rounded" title="Print Barcode"><i class="fa-solid fa-barcode"></i></button>
+                <button onclick="deleteProduct(${p.id})" class="text-red-500 hover:bg-red-50 p-2 rounded" title="Delete Product"><i class="fa-solid fa-trash"></i></button>
+            `;
+            
+            // If view-only, hide edit/delete/manage stock but keep barcode view
+            if (window.hideInventoryActions) {
+                actionButtons = `
+                    <button onclick="openBarcodeModal(${p.id})" class="text-orange-500 hover:bg-orange-50 p-2 rounded" title="Print Barcode"><i class="fa-solid fa-barcode"></i></button>
+                    <span class="text-[10px] text-gray-400 italic ml-2">View-only</span>
+                `;
+            }
+            
             tr.innerHTML = `
                 <td class="p-3 font-bold text-brand-dark text-xs">${p.code || '-'}</td>
                 <td class="p-3 font-medium text-gray-800">${p.name}</td>
@@ -540,10 +718,7 @@ function renderInventoryTable(products, ranges) {
                         </div>` : ''}
                 </td>
                 <td class="p-3 text-right whitespace-nowrap">
-                    <button onclick="openManageStockModal(${p.id})" class="text-green-600 hover:bg-green-50 p-2 rounded" title="Manage Stock (Arrivals)"><i class="fa-solid fa-boxes-packing"></i></button>
-                    <button onclick="editProduct(${p.id})" class="text-blue-500 hover:bg-blue-50 p-2 rounded" title="Edit Product"><i class="fa-solid fa-pen"></i></button>
-                    <button onclick="openBarcodeModal(${p.id})" class="text-orange-500 hover:bg-orange-50 p-2 rounded" title="Print Barcode"><i class="fa-solid fa-barcode"></i></button>
-                    <button onclick="deleteProduct(${p.id})" class="text-red-500 hover:bg-red-50 p-2 rounded" title="Delete Product"><i class="fa-solid fa-trash"></i></button>
+                    ${actionButtons}
                 </td>
             `;
             tbody.appendChild(tr);
@@ -3322,13 +3497,23 @@ function renderCustomerTable(customers) {
     customers.forEach(c => {
         const tr = document.createElement('tr');
         tr.className = 'border-b border-gray-50 hover:bg-gray-50 transition-colors';
+        
+        // Build action buttons based on view-only status
+        let actionButtons = `
+            <button onclick="openCustomerModal(${c.id})" class="text-blue-500 hover:bg-blue-50 p-2 rounded"><i class="fa-solid fa-pen"></i></button>
+            <button onclick="deleteCustomer(${c.id})" class="text-red-500 hover:bg-red-50 p-2 rounded"><i class="fa-solid fa-trash"></i></button>
+        `;
+        
+        if (window.hideCustomerActions) {
+            actionButtons = `<span class="text-[10px] text-gray-400 italic">View-only</span>`;
+        }
+        
         tr.innerHTML = `
             <td class="p-3 text-center"><input type="checkbox" class="customer-checkbox w-4 h-4 accent-brand-gold" value="${c.id}" data-mobile="${c.mobile}" data-name="${c.name}" onchange="updateBroadcastCount()"></td>
             <td class="p-3 font-medium text-gray-800">${c.name}</td>
             <td class="p-3 text-gray-500">${c.mobile}</td>
             <td class="p-3 text-right">
-                <button onclick="openCustomerModal(${c.id})" class="text-blue-500 hover:bg-blue-50 p-2 rounded"><i class="fa-solid fa-pen"></i></button>
-                <button onclick="deleteCustomer(${c.id})" class="text-red-500 hover:bg-red-50 p-2 rounded"><i class="fa-solid fa-trash"></i></button>
+                ${actionButtons}
             </td>
         `;
         tbody.appendChild(tr);

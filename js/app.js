@@ -3279,7 +3279,6 @@ async function processSelectedReturns(saleId) {
                     loadSalesTable();
                 }
             );
-            );
             return;
         }
         

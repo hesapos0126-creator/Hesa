@@ -416,13 +416,25 @@ app.get('/api/approvals/pending', async (req, res) => {
         const { role } = req.query;
         
         if (!role) {
+            console.log('[API] Missing role parameter');
             return res.status(400).json({ error: 'Role required' });
         }
 
+        console.log(`[API] Pending approvals requested for role: ${role}`);
+
+        // Case-insensitive role matching
+        const normalizedRole = role.toLowerCase();
+        
         const pending = await ApprovalRequest.find({
-            assignedRole: role.toUpperCase(),
+            assignedRole: normalizedRole,
             status: 'PENDING'
         }).lean();
+
+        console.log(`[API] Found ${pending.length} pending request(s) for role: ${normalizedRole}`);
+        
+        if (pending.length > 0) {
+            console.log(`[API] First pending request:`, pending[0]._id);
+        }
 
         return res.json(pending);
     } catch (err) {

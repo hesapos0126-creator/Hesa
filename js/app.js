@@ -4421,21 +4421,67 @@ function closeWaitingApprovalModal() {
  * @param {object} request - Approval request object
  */
 function openApproveActionModal(request) {
-    const modal = document.getElementById('modal-approve-action');
-    if (modal) {
-        // Populate modal fields
-        document.getElementById('approve-action-type').textContent = request.action;
-        document.getElementById('approve-requester-name').textContent = request.requesterUsername;
-        document.getElementById('approve-requester-role').textContent = request.requesterRole.toUpperCase();
-        document.getElementById('approve-action-details').textContent = JSON.stringify(request.details, null, 2);
-        document.getElementById('approve-request-id').value = request._id || request.id;
-        document.getElementById('approve-password-input').value = '';
+    try {
+        console.log('[MODAL] Opening approval modal for request:', request._id || request.id);
         
+        const modal = document.getElementById('modal-approve-action');
+        if (!modal) {
+            console.error('[MODAL] ❌ Modal element not found with id "modal-approve-action"');
+            return;
+        }
+        
+        console.log('[MODAL] ✅ Modal element found');
+        
+        // Populate modal fields - with error checks
+        const fields = {
+            'approve-action-type': request.action,
+            'approve-requester-name': request.requesterUsername,
+            'approve-requester-role': request.requesterRole?.toUpperCase() || 'UNKNOWN',
+            'approve-action-details': JSON.stringify(request.details, null, 2)
+        };
+        
+        for (const [fieldId, value] of Object.entries(fields)) {
+            const element = document.getElementById(fieldId);
+            if (!element) {
+                console.warn(`[MODAL] ⚠️ Field element not found: ${fieldId}`);
+            } else {
+                element.textContent = value;
+                console.log(`[MODAL] ✅ Populated ${fieldId}`);
+            }
+        }
+        
+        // Set hidden request ID field
+        const requestIdField = document.getElementById('approve-request-id');
+        if (requestIdField) {
+            requestIdField.value = request._id || request.id;
+            console.log('[MODAL] ✅ Set request ID field');
+        } else {
+            console.warn('[MODAL] ⚠️ Request ID field not found');
+        }
+        
+        // Clear password field
+        const passwordField = document.getElementById('approve-password-input');
+        if (passwordField) {
+            passwordField.value = '';
+            console.log('[MODAL] ✅ Cleared password field');
+        } else {
+            console.warn('[MODAL] ⚠️ Password field not found');
+        }
+        
+        // Remove hidden class and add flex (Tailwind display)
         modal.classList.remove('hidden');
         modal.classList.add('flex');
+        console.log('[MODAL] ✅ Removed hidden class, added flex class');
         
         // Focus on password input
-        document.getElementById('approve-password-input').focus();
+        if (passwordField) {
+            setTimeout(() => passwordField.focus(), 100);
+            console.log('[MODAL] ✅ Focused on password field');
+        }
+        
+        console.log('[MODAL] ✅ ✅ MODAL OPENED SUCCESSFULLY');
+    } catch (err) {
+        console.error('[MODAL] ❌ Error opening modal:', err);
     }
 }
 
@@ -4540,31 +4586,49 @@ async function handleApprovalReject() {
  */
 function startApprovalPolling() {
     if (!currentUser || !['gm', 'admin'].includes(currentUser.role)) {
+        console.log('[POLLING] Polling not needed for role:', currentUser?.role);
         return; // Only GM and Admin need to poll
     }
+    
+    console.log(`[POLLING] ✅ Initializing approval polling for role: ${currentUser.role}`);
     
     if (approvalPollingInterval) clearInterval(approvalPollingInterval);
     
     // Poll every 5 seconds for pending requests
     approvalPollingInterval = setInterval(async () => {
         try {
+            console.log(`[POLLING] Checking for pending approvals for ${currentUser.role}...`);
             const response = await fetch(`/api/approvals/pending?role=${currentUser.role}`);
-            if (!response.ok) return;
+            
+            if (!response.ok) {
+                console.warn(`[POLLING] Bad response status: ${response.status}`);
+                return;
+            }
             
             const requests = await response.json();
+            console.log(`[POLLING] Response received: ${requests?.length || 0} pending request(s)`);
             
             // If there's a pending request, open modal for first one
             if (requests && requests.length > 0) {
+                console.log('[POLLING] ✨ PENDING REQUEST FOUND!', requests[0]);
+                
                 // Only show modal if not already shown for this request
                 const modal = document.getElementById('modal-approve-action');
+                console.log('[POLLING] Modal element found:', !!modal, 'Hidden:', modal?.classList.contains('hidden'));
+                
                 if (modal && modal.classList.contains('hidden')) {
+                    console.log('[POLLING] Opening modal for pending request...');
                     openApproveActionModal(requests[0]);
+                } else {
+                    console.log('[POLLING] Modal already visible or not found, skipping');
                 }
             }
         } catch (err) {
-            console.error('Approval polling error:', err);
+            console.error('[POLLING] Error during approval polling:', err);
         }
     }, 5000);
+    
+    console.log(`[POLLING] ✅ Polling started successfully`);
 }
 
 /**

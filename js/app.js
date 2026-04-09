@@ -748,16 +748,16 @@ function renderInventoryTable(products, ranges) {
             
             // Build action buttons based on view-only status
             let actionButtons = `
-                <button onclick="openManageStockModal(${p.id})" class="text-green-600 hover:bg-green-50 p-2 rounded" title="Manage Stock (Arrivals)"><i class="fa-solid fa-boxes-packing"></i></button>
-                <button onclick="editProduct(${p.id})" class="text-blue-500 hover:bg-blue-50 p-2 rounded" title="Edit Product"><i class="fa-solid fa-pen"></i></button>
-                <button onclick="openBarcodeModal(${p.id})" class="text-orange-500 hover:bg-orange-50 p-2 rounded" title="Print Barcode"><i class="fa-solid fa-barcode"></i></button>
-                <button onclick="deleteProduct(${p.id})" class="text-red-500 hover:bg-red-50 p-2 rounded" title="Delete Product"><i class="fa-solid fa-trash"></i></button>
+                <button onclick="openManageStockModal('${p.id}')" class="text-green-600 hover:bg-green-50 p-2 rounded" title="Manage Stock (Arrivals)"><i class="fa-solid fa-boxes-packing"></i></button>
+                <button onclick="editProduct('${p.id}')" class="text-blue-500 hover:bg-blue-50 p-2 rounded" title="Edit Product"><i class="fa-solid fa-pen"></i></button>
+                <button onclick="openBarcodeModal('${p.id}')" class="text-orange-500 hover:bg-orange-50 p-2 rounded" title="Print Barcode"><i class="fa-solid fa-barcode"></i></button>
+                <button onclick="deleteProduct('${p.id}')" class="text-red-500 hover:bg-red-50 p-2 rounded" title="Delete Product"><i class="fa-solid fa-trash"></i></button>
             `;
             
             // If view-only, hide edit/delete/manage stock but keep barcode view
             if (window.hideInventoryActions) {
                 actionButtons = `
-                    <button onclick="openBarcodeModal(${p.id})" class="text-orange-500 hover:bg-orange-50 p-2 rounded" title="Print Barcode"><i class="fa-solid fa-barcode"></i></button>
+                    <button onclick="openBarcodeModal('${p.id}')" class="text-orange-500 hover:bg-orange-50 p-2 rounded" title="Print Barcode"><i class="fa-solid fa-barcode"></i></button>
                     <span class="text-[10px] text-gray-400 italic ml-2">View-only</span>
                 `;
             }
@@ -3624,8 +3624,8 @@ function renderCustomerTable(customers) {
         
         // Build action buttons based on view-only status
         let actionButtons = `
-            <button onclick="openCustomerModal(${c.id})" class="text-blue-500 hover:bg-blue-50 p-2 rounded"><i class="fa-solid fa-pen"></i></button>
-            <button onclick="deleteCustomer(${c.id})" class="text-red-500 hover:bg-red-50 p-2 rounded"><i class="fa-solid fa-trash"></i></button>
+            <button onclick="openCustomerModal('${c.id}')" class="text-blue-500 hover:bg-blue-50 p-2 rounded"><i class="fa-solid fa-pen"></i></button>
+            <button onclick="deleteCustomer('${c.id}')" class="text-red-500 hover:bg-red-50 p-2 rounded"><i class="fa-solid fa-trash"></i></button>
         `;
         
         if (window.hideCustomerActions) {

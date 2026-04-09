@@ -129,6 +129,35 @@ const pendingCartSchema = new mongoose.Schema({
 }, { timestamps: true });
 const PendingCart = mongoose.model('PendingCart', pendingCartSchema);
 
+// Approval Request Schema
+const approvalRequestSchema = new mongoose.Schema({
+    action: { type: String, required: true }, // 'DELETE_PRODUCT', 'DELETE_RETURN', 'EDIT_REPORTS', etc.
+    details: { type: Object, default: {} },
+    requesterUsername: { type: String, required: true },
+    requesterRole: { type: String, required: true },
+    assignedRole: { type: String, required: true }, // 'GM' or 'Admin'
+    assignedUsername: { type: String, default: null },
+    status: { type: String, enum: ['PENDING', 'APPROVED', 'REJECTED'], default: 'PENDING' },
+    createdAt: { type: Date, default: Date.now },
+    respondedAt: { type: Date, default: null },
+    expireAt: { type: Date, default: () => new Date(Date.now() + 3600000) } // Expires in 1 hour
+});
+approvalRequestSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 }); // TTL index
+const ApprovalRequest = mongoose.model('ApprovalRequest', approvalRequestSchema);
+
+// Audit Log Schema
+const auditLogSchema = new mongoose.Schema({
+    timestamp: { type: Date, default: Date.now },
+    action: { type: String, required: true },
+    requesterUsername: { type: String, required: true },
+    requesterRole: { type: String, required: true },
+    approverUsername: { type: String, default: 'System' },
+    approverRole: { type: String, default: 'System' },
+    details: { type: Object, default: {} },
+    status: { type: String, enum: ['EXECUTED', 'REJECTED', 'FAILED'], default: 'EXECUTED' }
+});
+const AuditLog = mongoose.model('AuditLog', auditLogSchema);
+
 // --- GENERIC API ROUTES TO MIMIC DEXIE API ---
 
 const models = {
@@ -139,7 +168,9 @@ const models = {
     users: User,
     logs: Log,
     codeRanges: CodeRange,
-    pending_carts: PendingCart
+    pending_carts: PendingCart,
+    approval_requests: ApprovalRequest,
+    audit_logs: AuditLog
 };
 
 // Serve main HTML file
@@ -320,6 +351,165 @@ app.get('/api/users/online', async (req, res) => {
     } catch (err) {
         console.error('[ERROR] Get online users error:', err);
         res.status(500).json({ error: 'Failed to fetch online users', details: err.message });
+    }
+});
+
+// --- APPROVAL REQUEST ENDPOINTS ---
+
+// Create approval request
+app.post('/api/approvals/request', async (req, res) => {
+    try {
+        const { action, details, requesterUsername, requesterRole, assignedRole } = req.body;
+        
+        if (!action || !requesterUsername || !requesterRole || !assignedRole) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        const approvalRequest = new ApprovalRequest({
+            action,
+            details: details || {},
+            requesterUsername,
+            requesterRole,
+            assignedRole
+        });
+
+        await approvalRequest.save();
+        return res.json({ success: true, requestId: approvalRequest._id });
+    } catch (err) {
+        console.error('[ERROR] Create approval request error:', err);
+        res.status(500).json({ error: 'Failed to create approval request', details: err.message });
+    }
+});
+
+// Get pending approvals for a specific role
+app.get('/api/approvals/pending', async (req, res) => {
+    try {
+        const { role } = req.query;
+        
+        if (!role) {
+            return res.status(400).json({ error: 'Role required' });
+        }
+
+        const pending = await ApprovalRequest.find({
+            assignedRole: role.toUpperCase(),
+            status: 'PENDING'
+        }).lean();
+
+        return res.json(pending);
+    } catch (err) {
+        console.error('[ERROR] Get pending approvals error:', err);
+        res.status(500).json({ error: 'Failed to fetch pending approvals', details: err.message });
+    }
+});
+
+// Check approval request status
+app.get('/api/approvals/status/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const request = await ApprovalRequest.findById(id).lean();
+        
+        if (!request) {
+            return res.status(404).json({ error: 'Request not found' });
+        }
+
+        return res.json({ status: request.status });
+    } catch (err) {
+        console.error('[ERROR] Get approval status error:', err);
+        res.status(500).json({ error: 'Failed to fetch approval status', details: err.message });
+    }
+});
+
+// Approve/Reject approval request
+app.post('/api/approvals/respond', async (req, res) => {
+    try {
+        const { requestId, approverUsername, approverPassword, action } = req.body;
+        
+        if (!requestId || !approverUsername || !approverPassword || !action) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        // Find the approval request
+        const request = await ApprovalRequest.findById(requestId);
+        if (!request || request.status !== 'PENDING') {
+            return res.status(404).json({ error: 'Request not found or already processed' });
+        }
+
+        // Verify approver exists and password is correct
+        const approver = await User.findOne({ username: approverUsername });
+        if (!approver) {
+            return res.status(400).json({ error: 'Approver not found' });
+        }
+
+        // Simple password check (in production, use bcrypt comparison)
+        if (approver.password !== approverPassword) {
+            return res.status(401).json({ error: 'Invalid password' });
+        }
+
+        // Update request status
+        const newStatus = action === 'approve' ? 'APPROVED' : 'REJECTED';
+        request.status = newStatus;
+        request.assignedUsername = approverUsername;
+        request.respondedAt = new Date();
+        await request.save();
+
+        // Create audit log
+        const auditLog = new AuditLog({
+            action: request.action,
+            requesterUsername: request.requesterUsername,
+            requesterRole: request.requesterRole,
+            approverUsername: approverUsername,
+            approverRole: approver.role,
+            details: request.details,
+            status: newStatus === 'APPROVED' ? 'EXECUTED' : 'REJECTED'
+        });
+        await auditLog.save();
+
+        return res.json({ success: true, status: newStatus });
+    } catch (err) {
+        console.error('[ERROR] Respond to approval error:', err);
+        res.status(500).json({ error: 'Failed to respond to approval', details: err.message });
+    }
+});
+
+// Create audit log entry
+app.post('/api/audit-logs', async (req, res) => {
+    try {
+        const { action, requesterUsername, requesterRole, details, status, approverUsername, approverRole } = req.body;
+        
+        const logEntry = new AuditLog({
+            timestamp: new Date(),
+            action: action,
+            requesterUsername: requesterUsername,
+            requesterRole: requesterRole,
+            approverUsername: approverUsername || null,
+            approverRole: approverRole || null,
+            details: details || {},
+            status: status || 'EXECUTED'
+        });
+        
+        await logEntry.save();
+        return res.json({ success: true, logId: logEntry._id });
+    } catch (err) {
+        console.error('[ERROR] Create audit log error:', err);
+        res.status(500).json({ error: 'Failed to create audit log', details: err.message });
+    }
+});
+
+// Get audit logs
+app.get('/api/audit-logs', async (req, res) => {
+    try {
+        const { limit = 100, skip = 0 } = req.query;
+        
+        const logs = await AuditLog.find()
+            .sort({ timestamp: -1 })
+            .limit(parseInt(limit))
+            .skip(parseInt(skip))
+            .lean();
+
+        return res.json(logs);
+    } catch (err) {
+        console.error('[ERROR] Get audit logs error:', err);
+        res.status(500).json({ error: 'Failed to fetch audit logs', details: err.message });
     }
 });
 

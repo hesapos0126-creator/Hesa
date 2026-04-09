@@ -300,6 +300,9 @@ async function handleLogin(e) {
             // === APPLY RBAC IMMEDIATELY AFTER LOGIN ===
             applyRBAC(currentUser.role);
             
+            // === INITIALIZE APPROVAL SYSTEM FOR GM/ADMIN ===
+            initializeApprovalSystem();
+            
             // Route to default module (dashboard or first accessible module)
             const defaultView = window.defaultModule || 'dashboard';
             router(defaultView);
@@ -333,6 +336,9 @@ async function handleLogout() {
         } catch (err) {
             console.error('Error calling logout API:', err);
         }
+
+        // === STOP APPROVAL POLLING ON LOGOUT ===
+        stopApprovalPolling();
 
         logAction('LOGOUT', `User ${currentUser.username} logged out`);
         currentUser = null;
@@ -4083,8 +4089,419 @@ async function importBackup(input) {
     };
 
     reader.readAsText(file);
-    input.value = ''; // Reset input
+    input.value = '';
 }
+
+
+// === APPROVAL SYSTEM - REMOTE ROLE-BASED APPROVAL & AUDIT LOGGING ===
+
+let approvalPollingInterval = null;
+
+/**
+ * Check if a specific action requires approval based on user role
+ * @param {string} action - Action type (deleteProduct, processReturn, editReports, deleteCustomer)
+ * @param {string} userRole - User's role (admin, gm, cashier, staff, salesperson, inventory_manager)
+ * @returns {boolean} - True if approval required
+ */
+function checkApprovalRequired(action, userRole) {
+    const restrictedForCashier = ['deleteProduct', 'processReturn', 'editReports', 'deleteCustomer', 'editProduct'];
+    return userRole === 'cashier' && restrictedForCashier.includes(action);
+}
+
+/**
+ * Request approval from online GM/Admin users
+ * @param {string} action - Action type being requested
+ * @param {object} details - Details about the action
+ * @returns {Promise<string>} - Approval request ID
+ */
+async function requestApproval(action, details) {
+    try {
+        const response = await fetch('/api/approvals/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: action,
+                details: details,
+                requesterUsername: currentUser.username,
+                requesterRole: currentUser.role
+            })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        return result.requestId;
+    } catch (err) {
+        console.error('Approval request failed:', err);
+        showNotification('Failed to create approval request: ' + err.message, 'error');
+        return null;
+    }
+}
+
+/**
+ * Poll approval status for a given request
+ * @param {string} requestId - Approval request ID
+ * @param {function} onApproved - Callback when request is approved
+ * @param {function} onRejected - Callback when request is rejected
+ * @param {number} maxPolls - Maximum number of polls (will timeout after ~10min at 2sec interval)
+ */
+async function pollApprovalStatus(requestId, onApproved, onRejected, maxPolls = 300) {
+    let pollCount = 0;
+    
+    const checkStatus = setInterval(async () => {
+        pollCount++;
+        
+        try {
+            const response = await fetch(`/api/approvals/status/${requestId}`);
+            const result = await response.json();
+            
+            if (result.status === 'APPROVED') {
+                clearInterval(checkStatus);
+                closeWaitingApprovalModal();
+                if (onApproved) onApproved();
+                showNotification('✅ Approval granted!', 'success');
+            } else if (result.status === 'REJECTED') {
+                clearInterval(checkStatus);
+                closeWaitingApprovalModal();
+                if (onRejected) onRejected();
+                showNotification('❌ Approval rejected', 'error');
+            } else if (pollCount >= maxPolls) {
+                // Timeout after 10 minutes
+                clearInterval(checkStatus);
+                closeWaitingApprovalModal();
+                if (onRejected) onRejected();
+                showNotification('⏰ Approval request expired (10 minutes timeout)', 'error');
+            }
+        } catch (err) {
+            console.error('Poll error:', err);
+        }
+    }, 2000); // Poll every 2 seconds
+}
+
+/**
+ * Open waiting approval modal with assigned role
+ * @param {string} assignedRole - Role to approve (GM or Admin)
+ * @param {string} requestId - Approval request ID
+ */
+function openWaitingApprovalModal(assignedRole, requestId) {
+    const modal = document.getElementById('modal-waiting-approval');
+    if (modal) {
+        document.getElementById('approval-assigned-role').textContent = assignedRole.toUpperCase();
+        document.getElementById('approval-request-id').value = requestId;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    }
+}
+
+/**
+ * Close waiting approval modal
+ */
+function closeWaitingApprovalModal() {
+    const modal = document.getElementById('modal-waiting-approval');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+/**
+ * Open approve action modal with pending request details
+ * @param {object} request - Approval request object
+ */
+function openApproveActionModal(request) {
+    const modal = document.getElementById('modal-approve-action');
+    if (modal) {
+        // Populate modal fields
+        document.getElementById('approve-action-type').textContent = request.action;
+        document.getElementById('approve-requester-name').textContent = request.requesterUsername;
+        document.getElementById('approve-requester-role').textContent = request.requesterRole.toUpperCase();
+        document.getElementById('approve-action-details').textContent = JSON.stringify(request.details, null, 2);
+        document.getElementById('approve-request-id').value = request._id || request.id;
+        document.getElementById('approve-password-input').value = '';
+        
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        
+        // Focus on password input
+        document.getElementById('approve-password-input').focus();
+    }
+}
+
+/**
+ * Close approve action modal
+ */
+function closeApproveActionModal() {
+    const modal = document.getElementById('modal-approve-action');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+}
+
+/**
+ * Handle approval form submission (Approve button)
+ * @param {Event} event - Form submit event
+ */
+async function handleApprovalSubmit(event) {
+    event.preventDefault();
+    
+    const requestId = document.getElementById('approve-request-id').value;
+    const password = document.getElementById('approve-password-input').value;
+    
+    if (!password) {
+        showNotification('Password required', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/approvals/respond', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                requestId: requestId,
+                approverUsername: currentUser.username,
+                approverPassword: password,
+                action: 'approve'
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || `HTTP ${response.status}`);
+        }
+        
+        const result = await response.json();
+        showNotification('✅ Action approved and executed', 'success');
+        closeApproveActionModal();
+        
+        // Reload affected section
+        await loadAuditLogs();
+        
+    } catch (err) {
+        console.error('Approval submission failed:', err);
+        showNotification('Approval failed: ' + err.message, 'error');
+    }
+}
+
+/**
+ * Handle approval rejection (Reject button)
+ */
+async function handleApprovalReject() {
+    const requestId = document.getElementById('approve-request-id').value;
+    const password = document.getElementById('approve-password-input').value;
+    
+    if (!password) {
+        showNotification('Password required to reject', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/approvals/respond', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                requestId: requestId,
+                approverUsername: currentUser.username,
+                approverPassword: password,
+                action: 'reject'
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || `HTTP ${response.status}`);
+        }
+        
+        showNotification('❌ Action rejected', 'success');
+        closeApproveActionModal();
+        await loadAuditLogs();
+        
+    } catch (err) {
+        console.error('Rejection failed:', err);
+        showNotification('Rejection failed: ' + err.message, 'error');
+    }
+}
+
+/**
+ * Start polling loop for GM/Admin to check pending approval requests
+ * Only runs for GM and Admin roles
+ */
+function startApprovalPolling() {
+    if (!currentUser || !['gm', 'admin'].includes(currentUser.role)) {
+        return; // Only GM and Admin need to poll
+    }
+    
+    if (approvalPollingInterval) clearInterval(approvalPollingInterval);
+    
+    // Poll every 5 seconds for pending requests
+    approvalPollingInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/approvals/pending?role=${currentUser.role}`);
+            if (!response.ok) return;
+            
+            const requests = await response.json();
+            
+            // If there's a pending request, open modal for first one
+            if (requests && requests.length > 0) {
+                // Only show modal if not already shown for this request
+                const modal = document.getElementById('modal-approve-action');
+                if (modal && modal.classList.contains('hidden')) {
+                    openApproveActionModal(requests[0]);
+                }
+            }
+        } catch (err) {
+            console.error('Approval polling error:', err);
+        }
+    }, 5000);
+}
+
+/**
+ * Stop approval polling (when user logs out)
+ */
+function stopApprovalPolling() {
+    if (approvalPollingInterval) {
+        clearInterval(approvalPollingInterval);
+        approvalPollingInterval = null;
+    }
+}
+
+/**
+ * Load and render audit logs in Reports section
+ */
+async function loadAuditLogs() {
+    try {
+        const response = await fetch('/api/audit-logs?limit=50&skip=0');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const logs = await response.json();
+        const tableBody = document.getElementById('audit-logs-table-body');
+        
+        if (!tableBody) {
+            console.warn('audit-logs-table-body not found');
+            return;
+        }
+        
+        // Clear existing rows
+        tableBody.innerHTML = '';
+        
+        if (!logs || logs.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-gray-500">No audit logs found</td></tr>';
+            return;
+        }
+        
+        // Populate audit logs
+        logs.forEach(log => {
+            const row = document.createElement('tr');
+            row.className = 'border-b hover:bg-gray-50';
+            
+            const timestamp = new Date(log.timestamp).toLocaleString('en-US', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            
+            const statusBadge = log.status === 'EXECUTED' 
+                ? '<span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">✅ ' + log.status + '</span>'
+                : log.status === 'REJECTED'
+                ? '<span class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">❌ ' + log.status + '</span>'
+                : '<span class="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs">⚠️ ' + log.status + '</span>';
+            
+            row.innerHTML = `
+                <td class="p-3 text-sm">${timestamp}</td>
+                <td class="p-3 text-sm font-medium">${log.action}</td>
+                <td class="p-3 text-sm">${log.requesterUsername} <span class="text-xs text-gray-500">(${log.requesterRole})</span></td>
+                <td class="p-3 text-sm">${log.approverUsername || '-'} <span class="text-xs text-gray-500">${log.approverRole ? '(' + log.approverRole + ')' : ''}</span></td>
+                <td class="p-3 text-sm">${statusBadge}</td>
+                <td class="p-3 text-sm text-gray-600 truncate">${JSON.stringify(log.details).substring(0, 50)}...</td>
+            `;
+            tableBody.appendChild(row);
+        });
+        
+    } catch (err) {
+        console.error('Failed to load audit logs:', err);
+    }
+}
+
+
+// === INTERCEPTED RESTRICTED FUNCTIONS ===
+
+/**
+ * Delete product with approval check for Cashier role
+ * @param {string} id - Product ID to delete
+ */
+async function deleteProductWithApproval(id) {
+    // Check if Cashier needs approval
+    if (checkApprovalRequired('deleteProduct', currentUser.role)) {
+        // Request approval from GM/Admin
+        const requestId = await requestApproval('deleteProduct', { productId: id });
+        
+        if (!requestId) return;
+        
+        // Show waiting modal
+        openWaitingApprovalModal('GM or Admin', requestId);
+        
+        // Poll for approval
+        await pollApprovalStatus(
+            requestId,
+            // onApproved callback
+            async () => {
+                await db.products.delete(id);
+                loadInventory();
+            },
+            // onRejected callback
+            () => {
+                loadInventory();
+            }
+        );
+    } else {
+        // Admin/GM can delete directly
+        if (confirm('Are you sure you want to delete this product?')) {
+            await db.products.delete(id);
+            
+            // Log to audit trail
+            try {
+                await fetch('/api/audit-logs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'deleteProduct',
+                        requesterUsername: currentUser.username,
+                        requesterRole: currentUser.role,
+                        details: { productId: id },
+                        status: 'EXECUTED'
+                    })
+                });
+            } catch (err) {
+                console.error('Audit log error:', err);
+            }
+            
+            loadInventory();
+        }
+    }
+}
+
+/**
+ * Override deleteProduct to use approval system
+ * This replaces the original deleteProduct function
+ */
+window.deleteProduct = deleteProductWithApproval;
+
+
+// === INITIALIZE APPROVAL POLLING ON USER LOGIN ===
+
+/**
+ * Call this after successful user login
+ */
+function initializeApprovalSystem() {
+    if (currentUser && ['gm', 'admin'].includes(currentUser.role)) {
+        startApprovalPolling();
+        console.log(`Approval polling started for ${currentUser.role}`);
+    }
+}
+
 
 // --- CLEAR REPORTS (Admin Only) ---
 

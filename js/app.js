@@ -156,51 +156,71 @@ let currentApprovalRequestId = null;
 
 /**
  * Submit approval decision (APPROVED or REJECTED) - GLOBAL SCOPE
+ * Bulletproof version with guaranteed data extraction
  * @param {string} decisionStatus - Either 'APPROVED' or 'REJECTED'
  */
 window.submitApprovalDecision = async function(decisionStatus) {
     try {
-        console.log('[GLOBAL] submitApprovalDecision called with status:', decisionStatus);
-        
+        // Step 1: Get password
         const pwd = document.getElementById('approver-password').value;
-        if (!pwd) {
-            alert('Please enter your password.');
-            return;
+        if (!pwd) { 
+            alert('Please enter your password.'); 
+            return; 
         }
         
-        if (!currentApprovalRequestId) {
-            alert('Error: No request ID found.');
-            return;
+        // Step 2: FOOLPROOF REQUEST ID: Grab from hidden input FIRST, fallback to global
+        let reqId = null;
+        const hiddenInput = document.getElementById('approve-request-id');
+        if (hiddenInput && hiddenInput.value) { 
+            reqId = hiddenInput.value; 
+            console.log('[DEBUG] Request ID from hidden input:', reqId);
+        }
+        if (!reqId) { 
+            reqId = window.currentApprovalRequestId; 
+            console.log('[DEBUG] Request ID from global:', reqId);
+        }
+        if (!reqId) { 
+            alert('Error: Request ID is missing from the UI.'); 
+            return; 
         }
 
+        // Step 3: FOOLPROOF USERNAME: Handle different local storage structures
+        const approverName = (currentUser && (currentUser.username || currentUser.name || currentUser.id)) || 'Admin';
+        console.log('[DEBUG] Approver username:', approverName);
+
+        // Step 4: Build and log full payload BEFORE sending
+        const payload = { 
+            requestId: reqId, 
+            approverUsername: approverName, 
+            password: pwd, 
+            status: decisionStatus 
+        };
+        
+        console.log("[DEBUG] Sending approval payload:", payload);
+
+        // Step 5: Send to backend
         const res = await fetch('/api/approvals/respond', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ 
-                requestId: currentApprovalRequestId, 
-                approverUsername: currentUser.username, 
-                password: pwd, 
-                status: decisionStatus 
-            })
+            body: JSON.stringify(payload)
         });
 
+        console.log('[DEBUG] Backend response status:', res.status);
+
+        // Step 6: Handle response
         if (res.ok) {
-            console.log('[GLOBAL] Approval decision successful');
+            console.log('[DEBUG] Approval decision successful');
             document.getElementById('modal-approve-action').classList.add('hidden');
-            document.getElementById('modal-approve-action').classList.remove('flex');
             document.getElementById('approver-password').value = '';
-            alert('✅ Action successfully ' + decisionStatus.toLowerCase());
-            // Trigger refresh of audit logs
-            if (typeof loadAuditLogs === 'function') {
-                await loadAuditLogs();
-            }
+            alert('✅ Action successfully ' + decisionStatus);
+            window.location.reload(); // Refresh to reflect changes
         } else {
             const err = await res.json();
-            console.error('[GLOBAL] Approval decision error:', err);
-            alert('Error: ' + (err.error || err.message || 'Unknown error'));
+            console.error('[DEBUG] Backend rejected request:', err);
+            alert('Backend Error: ' + (err.message || err.error || 'Missing fields'));
         }
     } catch (e) {
-        console.error('[GLOBAL] Exception in submitApprovalDecision:', e);
+        console.error('[DEBUG] Exception in submitApprovalDecision:', e);
         alert('System error occurred: ' + e.message);
     }
 };

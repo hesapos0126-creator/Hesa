@@ -2154,41 +2154,46 @@ async function processCheckout(mode) {
         timestamp: new Date().toISOString()
     };
 
-    // Transaction
-    await db.transaction('rw', db.products, db.sales, async () => {
-        // Add Sale
-        const saleId = await db.sales.add(sale);
+    try {
+        // Transaction
+        await db.transaction('rw', db.products, db.sales, async () => {
+            // Add Sale
+            const saleId = await db.sales.add(sale);
 
-        // Update Return as used if applicable
-        if (appliedReturnNo) {
-            const ret = await db.returns.where('returnNumber').equals(appliedReturnNo).first();
-            if (ret) {
-                await db.returns.update(ret.id, { 
-                    isUsed: true, 
-                    exchangeInvoiceNumber: `${prefix}${invoiceNumber}` 
-                });
-            }
-        }
-
-        // Update Stock
-        for (const item of cart) {
-            if (item.isCustom) continue;
-            const product = await db.products.get(item.id);
-            if (product) {
-                const newTotalStock = Math.max(0, product.stock - item.qty);
-                const newSizeStock = product.sizeStock ? { ...product.sizeStock } : null;
-
-                if (newSizeStock && item.size && newSizeStock[item.size] !== undefined) {
-                    newSizeStock[item.size] = Math.max(0, newSizeStock[item.size] - item.qty);
+            // Update Return as used if applicable
+            if (appliedReturnNo) {
+                const ret = await db.returns.where('returnNumber').equals(appliedReturnNo).first();
+                if (ret) {
+                    await db.returns.update(ret.id, { 
+                        isUsed: true, 
+                        exchangeInvoiceNumber: `${prefix}${invoiceNumber}` 
+                    });
                 }
-
-                await db.products.update(item.id, {
-                    stock: newTotalStock,
-                    sizeStock: newSizeStock
-                });
             }
-        }
-    });
+
+            // Update Stock
+            for (const item of cart) {
+                if (item.isCustom) continue;
+                const product = await db.products.get(item.id);
+                if (product) {
+                    const newTotalStock = Math.max(0, product.stock - item.qty);
+                    const newSizeStock = product.sizeStock ? { ...product.sizeStock } : null;
+
+                    if (newSizeStock && item.size && newSizeStock[item.size] !== undefined) {
+                        newSizeStock[item.size] = Math.max(0, newSizeStock[item.size] - item.qty);
+                    }
+
+                    await db.products.update(item.id, {
+                        stock: newTotalStock,
+                        sizeStock: newSizeStock
+                    });
+                }
+            }
+        });
+    } catch (err) {
+        console.error('[ERROR] Transaction failed, but proceeding with print:', err);
+        // Continue - we still want to print the receipt even if inventory update fails
+    }
 
     // Common Reset
     cart = [];
@@ -2206,21 +2211,29 @@ async function processCheckout(mode) {
     document.getElementById('checkout-balance').textContent = '0.00';
 
     // Refresh Product Grid
-    loadPosProducts('All');
+    try {
+        loadPosProducts('All');
+    } catch (err) {
+        console.error('[ERROR] Failed to refresh product grid:', err);
+    }
 
     // Store last sale
     lastSaleForDownload = { sale, custName: customerName };
     document.getElementById('btn-pos-download-last').classList.remove('hidden');
 
-    // Check Mode
-    if (mode === 'print') {
-        generateBillPDF(sale, customerName);
-        // Also show whatsapp option? User asked for them to be selective. 
-        // "payment eka cart eke thiyeddima penna one" -> implies choice.
-    } else if (mode === 'whatsapp') {
-        if (customerMobile && customerMobile.trim().length >= 9) {
-            showWhatsAppBillOption(sale, customerName, customerMobile);
+    // Check Mode - Print/WhatsApp MUST happen, even if DB had issues
+    try {
+        if (mode === 'print') {
+            generateBillPDF(sale, customerName);
+        } else if (mode === 'whatsapp') {
+            if (customerMobile && customerMobile.trim().length >= 9) {
+                showWhatsAppBillOption(sale, customerName, customerMobile);
+            }
         }
+    } catch (err) {
+        console.error('[ERROR] Failed to generate bill output:', err);
+        // Force print as fallback
+        generateBillPDF(sale, customerName);
     }
 }
 
@@ -2266,101 +2279,139 @@ function showWhatsAppBillOption(sale, custName, mobile) {
 
 // Shared Helper to populate template (DRY)
 function preparePrintTemplate(sale, custName) {
-    const totalDiscount = sale.items.reduce((sum, i) => sum + ((i.discount || 0) * i.qty), 0);
+    try {
+        const totalDiscount = sale.items.reduce((sum, i) => sum + ((i.discount || 0) * i.qty), 0);
 
-    const itemsHtml = sale.items.map(i => {
-        const unitPrice = i.price - (i.discount || 0); // Use stored discount
-        const hasDiscount = (i.discount || 0) > 0;
-        return `
-        <tr style="border-bottom: 1px dashed #ccc;">
-            <td style="padding: 5px 0;">${i.name} <span style="font-size: 10px; color: #666;">(${i.color})</span>
-            ${i.code ? `<span style="font-size:12px;font-weight:bold;"> [${i.code}]</span>` : ''}
-            ${i.size ? `<span style="font-weight:bold;font-size:11px;"> [${i.size}]</span>` : ''}
-            ${hasDiscount ? `<br><span style="font-size:12px;color:#888;text-decoration:line-through;">Rs ${i.price.toLocaleString()}</span> <span style="font-size:13px;font-weight:bold;color:#e74c3c;">-Rs ${i.discount}</span> <span style="font-size:13px;font-weight:bold;">= Rs ${unitPrice.toLocaleString()}</span>` : ''}</td>
-            <td style="text-align: center; padding: 5px 8px;">${i.qty}</td>
-            <td style="text-align: right; padding: 5px 0;">${hasDiscount ? `<span style="font-size:11px;color:#888;text-decoration:line-through;">Rs ${(i.price * i.qty).toLocaleString()}</span><br>` : ''}Rs ${(unitPrice * i.qty).toLocaleString()}</td>
-        </tr>
-    `}).join('');
+        const itemsHtml = sale.items.map(i => {
+            const unitPrice = i.price - (i.discount || 0); // Use stored discount
+            const hasDiscount = (i.discount || 0) > 0;
+            return `
+            <tr style="border-bottom: 1px dashed #ccc;">
+                <td style="padding: 5px 0;">${i.name} <span style="font-size: 10px; color: #666;">(${i.color})</span>
+                ${i.code ? `<span style="font-size:12px;font-weight:bold;"> [${i.code}]</span>` : ''}
+                ${i.size ? `<span style="font-weight:bold;font-size:11px;"> [${i.size}]</span>` : ''}
+                ${hasDiscount ? `<br><span style="font-size:12px;color:#888;text-decoration:line-through;">Rs ${i.price.toLocaleString()}</span> <span style="font-size:13px;font-weight:bold;color:#e74c3c;">-Rs ${i.discount}</span> <span style="font-size:13px;font-weight:bold;">= Rs ${unitPrice.toLocaleString()}</span>` : ''}</td>
+                <td style="text-align: center; padding: 5px 8px;">${i.qty}</td>
+                <td style="text-align: right; padding: 5px 0;">${hasDiscount ? `<span style="font-size:11px;color:#888;text-decoration:line-through;">Rs ${(i.price * i.qty).toLocaleString()}</span><br>` : ''}Rs ${(unitPrice * i.qty).toLocaleString()}</td>
+            </tr>
+        `}).join('');
 
-    const discountRow = totalDiscount > 0
-        ? `<tr><td colspan="2" style="text-align:right;color:#e74c3c;font-size:14px;font-weight:bold;">Total Savings:</td><td style="text-align:right;color:#e74c3c;font-size:14px;font-weight:bold;">-Rs ${totalDiscount.toLocaleString()}</td></tr>`
-        : '';
+        const discountRow = totalDiscount > 0
+            ? `<tr><td colspan="2" style="text-align:right;color:#e74c3c;font-size:14px;font-weight:bold;">Total Savings:</td><td style="text-align:right;color:#e74c3c;font-size:14px;font-weight:bold;">-Rs ${totalDiscount.toLocaleString()}</td></tr>`
+            : '';
 
-    const isOnline = sale.orderType === 'online';
-    const finalTotal = isOnline
-        ? (sale.grandTotal || sale.total + (sale.courierCharges || 0) + (sale.extraCharges || 0))
-        : sale.total;
+        const isOnline = sale.orderType === 'online';
+        const finalTotal = isOnline
+            ? (sale.grandTotal || sale.total + (sale.courierCharges || 0) + (sale.extraCharges || 0))
+            : sale.total;
 
-    document.getElementById('print-inv-no').textContent = `${sale.invoicePrefix}${sale.invoiceNumber}`;
-    document.getElementById('print-date').textContent = new Date(sale.timestamp).toLocaleString();
-    document.getElementById('print-cust').textContent = custName;
-    document.getElementById('print-mobile').textContent = sale.customerMobile || '-';
-    document.getElementById('print-items').innerHTML = itemsHtml + discountRow;
-    document.getElementById('print-subtotal').textContent = `Rs ${(sale.total + (sale.specialDiscount || 0)).toLocaleString()}.00`;
-    
-    const specialDiscountRowEl = document.getElementById('print-special-discount-row');
-    const specialDiscountEl = document.getElementById('print-special-discount');
-    if (sale.specialDiscount > 0 && specialDiscountRowEl) {
-        specialDiscountRowEl.style.display = 'flex';
-        specialDiscountEl.textContent = `-Rs ${sale.specialDiscount.toLocaleString()}`;
-    } else if (specialDiscountRowEl) {
-        specialDiscountRowEl.style.display = 'none';
-    }
-    
-    document.getElementById('print-total').textContent = `Rs ${finalTotal.toLocaleString()}.00`;
-    
-    // Return Credit
-    const returnRow = document.getElementById('print-return-credit-row');
-    const returnAmtEl = document.getElementById('print-return-credit');
-    if (sale.returnCredit > 0 && returnRow) {
-        returnRow.style.display = 'flex';
-        returnAmtEl.textContent = `-Rs ${sale.returnCredit.toLocaleString()}`;
-    } else if (returnRow) {
-        returnRow.style.display = 'none';
-    }
-
-    document.getElementById('print-cash').textContent = `Rs ${sale.cashReceived?.toLocaleString() || '0.00'}`;
-    document.getElementById('print-balance').textContent = `Rs ${sale.balance?.toLocaleString() || '0.00'}`;
-
-    // Online badge & delivery section
-    const badge = document.getElementById('print-online-badge');
-    const deliverySection = document.getElementById('print-delivery-section');
-    const courierRow = document.getElementById('print-courier-row');
-    const extraRow = document.getElementById('print-extra-row');
-
-    if (isOnline) {
-        badge.style.display = 'block';
-        if (sale.deliveryAddress) {
-            deliverySection.style.display = 'block';
-            document.getElementById('print-address').textContent = sale.deliveryAddress;
-            document.getElementById('print-delivery-phone').textContent = sale.customerMobile || '-';
-        } else {
-            deliverySection.style.display = 'none';
+        // Safe element updates with null checks
+        const invNoEl = document.getElementById('print-inv-no');
+        if (invNoEl) invNoEl.textContent = `${sale.invoicePrefix}${sale.invoiceNumber}`;
+        
+        const dateEl = document.getElementById('print-date');
+        if (dateEl) dateEl.textContent = new Date(sale.timestamp).toLocaleString();
+        
+        const custEl = document.getElementById('print-cust');
+        if (custEl) custEl.textContent = custName || '-';
+        
+        const mobileEl = document.getElementById('print-mobile');
+        if (mobileEl) mobileEl.textContent = sale.customerMobile || '-';
+        
+        const itemsEl = document.getElementById('print-items');
+        if (itemsEl) itemsEl.innerHTML = itemsHtml + discountRow;
+        
+        const subtotalEl = document.getElementById('print-subtotal');
+        if (subtotalEl) subtotalEl.textContent = `Rs ${(sale.total + (sale.specialDiscount || 0)).toLocaleString()}.00`;
+        
+        const specialDiscountRowEl = document.getElementById('print-special-discount-row');
+        const specialDiscountEl = document.getElementById('print-special-discount');
+        if (sale.specialDiscount > 0 && specialDiscountRowEl) {
+            specialDiscountRowEl.style.display = 'flex';
+            if (specialDiscountEl) specialDiscountEl.textContent = `-Rs ${sale.specialDiscount.toLocaleString()}`;
+        } else if (specialDiscountRowEl) {
+            specialDiscountRowEl.style.display = 'none';
         }
-        if (sale.courierCharges > 0) {
-            courierRow.style.display = 'flex';
-            document.getElementById('print-courier').textContent = `Rs ${sale.courierCharges.toLocaleString()}`;
-        } else {
-            courierRow.style.display = 'none';
+        
+        const totalEl = document.getElementById('print-total');
+        if (totalEl) totalEl.textContent = `Rs ${finalTotal.toLocaleString()}.00`;
+        
+        // Return Credit
+        const returnRow = document.getElementById('print-return-credit-row');
+        const returnAmtEl = document.getElementById('print-return-credit');
+        if (sale.returnCredit > 0 && returnRow) {
+            returnRow.style.display = 'flex';
+            if (returnAmtEl) returnAmtEl.textContent = `-Rs ${sale.returnCredit.toLocaleString()}`;
+        } else if (returnRow) {
+            returnRow.style.display = 'none';
         }
-        if (sale.extraCharges > 0) {
-            extraRow.style.display = 'flex';
-            document.getElementById('print-extra-label').textContent = sale.extraChargesLabel || 'Extra Charges';
-            document.getElementById('print-extra').textContent = `Rs ${sale.extraCharges.toLocaleString()}`;
-        } else {
-            extraRow.style.display = 'none';
-        }
-    } else {
-        badge.style.display = 'none';
-        deliverySection.style.display = 'none';
-        courierRow.style.display = 'none';
-        extraRow.style.display = 'none';
-    }
 
-    if (window.JsBarcode) {
-        JsBarcode("#print-barcode", `${sale.invoicePrefix}${sale.invoiceNumber}`, {
-            format: "CODE128", width: 1.5, height: 40, displayValue: true
-        });
+        const cashEl = document.getElementById('print-cash');
+        if (cashEl) cashEl.textContent = `Rs ${sale.cashReceived?.toLocaleString() || '0.00'}`;
+        
+        const balanceEl = document.getElementById('print-balance');
+        if (balanceEl) balanceEl.textContent = `Rs ${sale.balance?.toLocaleString() || '0.00'}`;
+
+        // Online badge & delivery section
+        const badge = document.getElementById('print-online-badge');
+        const deliverySection = document.getElementById('print-delivery-section');
+        const courierRow = document.getElementById('print-courier-row');
+        const extraRow = document.getElementById('print-extra-row');
+
+        if (isOnline) {
+            if (badge) badge.style.display = 'block';
+            if (sale.deliveryAddress) {
+                if (deliverySection) {
+                    deliverySection.style.display = 'block';
+                    const addressEl = document.getElementById('print-address');
+                    if (addressEl) addressEl.textContent = sale.deliveryAddress;
+                    const phoneEl = document.getElementById('print-delivery-phone');
+                    if (phoneEl) phoneEl.textContent = sale.customerMobile || '-';
+                }
+            } else {
+                if (deliverySection) deliverySection.style.display = 'none';
+            }
+            if (sale.courierCharges > 0) {
+                if (courierRow) {
+                    courierRow.style.display = 'flex';
+                    const courierEl = document.getElementById('print-courier');
+                    if (courierEl) courierEl.textContent = `Rs ${sale.courierCharges.toLocaleString()}`;
+                }
+            } else {
+                if (courierRow) courierRow.style.display = 'none';
+            }
+            if (sale.extraCharges > 0) {
+                if (extraRow) {
+                    extraRow.style.display = 'flex';
+                    const labelEl = document.getElementById('print-extra-label');
+                    if (labelEl) labelEl.textContent = sale.extraChargesLabel || 'Extra Charges';
+                    const extraEl = document.getElementById('print-extra');
+                    if (extraEl) extraEl.textContent = `Rs ${sale.extraCharges.toLocaleString()}`;
+                }
+            } else {
+                if (extraRow) extraRow.style.display = 'none';
+            }
+        } else {
+            if (badge) badge.style.display = 'none';
+            if (deliverySection) deliverySection.style.display = 'none';
+            if (courierRow) courierRow.style.display = 'none';
+            if (extraRow) extraRow.style.display = 'none';
+        }
+
+        if (window.JsBarcode) {
+            try {
+                JsBarcode("#print-barcode", `${sale.invoicePrefix}${sale.invoiceNumber}`, {
+                    format: "CODE128", width: 1.5, height: 40, displayValue: true
+                });
+            } catch (err) {
+                console.error('[WARNING] Barcode generation failed:', err);
+            }
+        }
+        
+        console.log('[DEBUG] preparePrintTemplate completed successfully');
+    } catch (err) {
+        console.error('[ERROR] preparePrintTemplate failed:', err);
+        throw err;
     }
 }
 
@@ -2388,22 +2439,36 @@ function downloadLastBill() {
 }
 
 function generateBillPDF(sale, custName) {
-    const isOnline = sale.orderType === 'online';
+    try {
+        console.log('[DEBUG] generateBillPDF called with sale:', sale.invoicePrefix + sale.invoiceNumber);
+        
+        const isOnline = sale.orderType === 'online';
 
-    if (isOnline) {
-        // --- ONLINE ORDER: Print 2 bills in one window ---
-        printOnlineDualBill(sale, custName);
-    } else {
-        // --- IN-STORE: Single bill as before ---
-        preparePrintTemplate(sale, custName);
-        const printable = document.getElementById('print-template');
-        printable.id = 'printable-area';
-        printable.style.display = 'block';
-        window.print();
-        setTimeout(() => {
-            printable.style.display = 'none';
-            printable.id = 'print-template';
-        }, 1000);
+        if (isOnline) {
+            // --- ONLINE ORDER: Print 2 bills in one window ---
+            console.log('[DEBUG] Printing online order bill');
+            printOnlineDualBill(sale, custName);
+        } else {
+            // --- IN-STORE: Single bill as before ---
+            console.log('[DEBUG] Preparing print template and printing');
+            preparePrintTemplate(sale, custName);
+            const printable = document.getElementById('print-template');
+            if (!printable) {
+                console.error('[ERROR] Print template element not found!');
+                return;
+            }
+            printable.id = 'printable-area';
+            printable.style.display = 'block';
+            console.log('[DEBUG] Calling window.print()');
+            window.print();
+            setTimeout(() => {
+                printable.style.display = 'none';
+                printable.id = 'print-template';
+            }, 1000);
+        }
+    } catch (err) {
+        console.error('[ERROR] generateBillPDF failed:', err);
+        alert('Error printing bill: ' + err.message);
     }
 }
 

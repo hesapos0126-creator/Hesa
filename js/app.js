@@ -4497,6 +4497,109 @@ function closeApproveActionModal() {
 }
 
 /**
+ * Submit approval decision (APPROVED or REJECTED)
+ * @param {string} decisionStatus - Either 'APPROVED' or 'REJECTED'
+ */
+async function submitApprovalDecision(decisionStatus) {
+    try {
+        console.log(`[APPROVAL DECISION] Processing ${decisionStatus} decision...`);
+        
+        // Step 1: Get password from input
+        const passwordInput = document.getElementById('approver-password');
+        if (!passwordInput) {
+            console.error('[APPROVAL DECISION] ❌ Password input not found with id "approver-password"');
+            alert('Error: Password field not found in the form.');
+            return;
+        }
+        
+        const pwd = passwordInput.value;
+        console.log('[APPROVAL DECISION] Password retrieved from input');
+        
+        // Step 2: Validate password is not empty
+        if (!pwd) {
+            console.warn('[APPROVAL DECISION] ⚠️ Password is empty');
+            alert('Please enter your password to confirm.');
+            return;
+        }
+        
+        // Step 3: Get request ID
+        const requestIdField = document.getElementById('approve-request-id');
+        if (!requestIdField) {
+            console.error('[APPROVAL DECISION] ❌ Request ID field not found');
+            alert('Error: Request ID field not found.');
+            return;
+        }
+        
+        const requestId = requestIdField.value;
+        console.log(`[APPROVAL DECISION] Request ID: ${requestId}`);
+        
+        // Step 3b: Validate we have a request ID
+        if (!requestId) {
+            console.error('[APPROVAL DECISION] ❌ Request ID is empty');
+            alert('Error: No approval request ID set.');
+            return;
+        }
+        
+        // Step 3c: Validate currentUser
+        if (!currentUser || !currentUser.username) {
+            console.error('[APPROVAL DECISION] ❌ currentUser not set or missing username');
+            alert('Error: User not authenticated.');
+            return;
+        }
+        
+        console.log(`[APPROVAL DECISION] Approver: ${currentUser.username}`);
+        
+        // Step 4: Build request payload
+        const payload = {
+            requestId: requestId,
+            approverUsername: currentUser.username,
+            password: pwd,
+            status: decisionStatus
+        };
+        
+        console.log('[APPROVAL DECISION] Sending decision to backend...', { requestId, approverUsername: currentUser.username, status: decisionStatus });
+        
+        // Step 4: Send decision to backend
+        const response = await fetch('/api/approvals/respond', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        console.log(`[APPROVAL DECISION] Server response status: ${response.status}`);
+        
+        // Step 5: Handle server response
+        const result = await response.json();
+        
+        if (!response.ok) {
+            console.error(`[APPROVAL DECISION] ❌ Server rejected request:`, result);
+            const errorMsg = result.error || result.message || `HTTP ${response.status}`;
+            alert(`Decision failed: ${errorMsg}`);
+            return;
+        }
+        
+        // Success!
+        console.log(`[APPROVAL DECISION] ✅ Decision ${decisionStatus} submitted successfully`, result);
+        
+        // Clear password field and close modal
+        passwordInput.value = '';
+        closeApproveActionModal();
+        
+        // Show success alert
+        alert(`✅ Action was successfully ${decisionStatus.toLowerCase()}.`);
+        
+        // Reload audit logs to show the new record
+        await loadAuditLogs();
+        
+        console.log(`[APPROVAL DECISION] ✅ ✅ ${decisionStatus} process complete`);
+        
+    } catch (err) {
+        console.error('[APPROVAL DECISION] ❌ Error during approval decision:', err);
+        alert(`Error processing decision: ${err.message}`);
+    }
+}
+
+/**
  * Handle approval form submission (Approve button)
  * @param {Event} event - Form submit event
  */

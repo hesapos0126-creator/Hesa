@@ -2087,22 +2087,22 @@
                 <p class="text-sm text-gray-700"><strong>Action:</strong> <span id="approve-action-type">Delete Product</span></p>
                 <p class="text-xs text-gray-500 mt-2 italic">Details: <span id="approve-action-details">N/A</span></p>
             </div>
-            <form onsubmit="handleApprovalSubmit(event)" class="space-y-4">
+            <div class="space-y-4">
                 <input type="hidden" id="approve-request-id">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Your Password</label>
-                    <input type="password" id="approve-password-input" required
-                        class="w-full p-2 border border-gray-200 rounded-lg focus:outline-none focus:border-brand-gold text-sm">
+                    <input type="password" id="approver-password"
+                        class="w-full p-2 border border-gray-200 rounded-lg focus:outline-none focus:border-brand-gold text-sm" placeholder="Enter password to confirm">
                 </div>
                 <div class="flex gap-2">
-                    <button type="button" onclick="handleApprovalReject()" class="flex-1 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors font-medium text-sm">
+                    <button type="button" onclick="submitApprovalDecision('REJECTED')" class="flex-1 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors font-medium text-sm">
                         Reject
                     </button>
-                    <button type="submit" class="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold text-sm">
+                    <button type="button" onclick="submitApprovalDecision('APPROVED')" class="flex-1 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-bold text-sm">
                         Approve
                     </button>
                 </div>
-            </form>
+            </div>
         </div>
     </div>
 

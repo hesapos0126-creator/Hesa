@@ -161,10 +161,13 @@ let currentApprovalRequestId = null;
  */
 window.submitApprovalDecision = async function(decisionStatus) {
     try {
+        console.log('[APPROVAL] 🔐 submitApprovalDecision called with status:', decisionStatus);
+        
         // Step 1: Get password
         const passwordField = document.getElementById('approver-password');
         const pwd = (passwordField && passwordField.value) || '';
         if (!pwd.trim()) { 
+            console.warn('[APPROVAL] ⚠️ Password field is empty');
             alert('Please enter your password.'); 
             return; 
         }
@@ -176,18 +179,20 @@ window.submitApprovalDecision = async function(decisionStatus) {
         const hiddenInput = document.getElementById('approve-request-id');
         if (hiddenInput && hiddenInput.value && hiddenInput.value.trim()) { 
             reqId = hiddenInput.value.trim(); 
-            console.log('[DEBUG] ✅ Request ID from hidden input:', reqId);
+            console.log('[APPROVAL] ✅ Request ID from hidden input:', reqId);
         }
         
         // Method 2: Fallback to global variable
         if (!reqId && window.currentApprovalRequestId) { 
             reqId = window.currentApprovalRequestId; 
-            console.log('[DEBUG] ✅ Request ID from global variable:', reqId);
+            console.log('[APPROVAL] ✅ Request ID from global variable:', reqId);
         }
         
-        // If still no ID, error out
+        // If still no ID, error out with detailed diagnostics
         if (!reqId) { 
-            console.error('[DEBUG] ❌ No request ID found! Hidden field:', hiddenInput?.value, 'Global:', window.currentApprovalRequestId);
+            console.error('[APPROVAL] ❌ CRITICAL: Approval failed - Request ID not found in DOM or Global State');
+            console.error('[APPROVAL] Hidden field exists:', !!hiddenInput, 'Value:', hiddenInput?.value);
+            console.error('[APPROVAL] Global currentApprovalRequestId:', window.currentApprovalRequestId);
             alert('❌ CRITICAL: Request ID is missing. Please reload and try again.'); 
             return; 
         }
@@ -4799,19 +4804,26 @@ async function handleApprovalReject() {
  * Only runs for GM and Admin roles
  */
 function startApprovalPolling() {
-    if (!currentUser || !['gm', 'admin'].includes(currentUser.role)) {
+    if (!currentUser) {
+        console.warn('[POLLING] ⚠️ currentUser not found, cannot start polling');
+        return;
+    }
+    
+    const roleLower = currentUser.role.toLowerCase();
+    if (roleLower !== 'gm' && roleLower !== 'admin') {
         console.log('[POLLING] Polling not needed for role:', currentUser?.role);
         return; // Only GM and Admin need to poll
     }
     
-    console.log(`[POLLING] ✅ Initializing approval polling for role: ${currentUser.role}`);
+    console.log(`[POLLING] 🚀 Initializing approval polling for role: ${currentUser.role}`);
+    console.log('[POLLING] Active: Checking for pending requests for role:', currentUser.role);
     
     if (approvalPollingInterval) clearInterval(approvalPollingInterval);
     
     // Poll every 5 seconds for pending requests
     approvalPollingInterval = setInterval(async () => {
         try {
-            console.log(`[POLLING] Checking for pending approvals for ${currentUser.role}...`);
+            console.log(`[POLLING] 🔍 Checking for pending approvals for ${currentUser.role}...`);
             const response = await fetch(`/api/approvals/pending?role=${currentUser.role}`);
             
             if (!response.ok) {
@@ -4989,9 +5001,17 @@ window.deleteProduct = deleteProductWithApproval;
  * Call this after successful user login
  */
 function initializeApprovalSystem() {
-    if (currentUser && ['gm', 'admin'].includes(currentUser.role)) {
-        startApprovalPolling();
-        console.log(`Approval polling started for ${currentUser.role}`);
+    if (currentUser) {
+        const roleLower = currentUser.role.toLowerCase();
+        if (roleLower === 'gm' || roleLower === 'admin') {
+            console.log(`[INIT] 🚀 Initializing approval system for role: ${currentUser.role}`);
+            startApprovalPolling();
+            console.log(`[INIT] ✅ Approval polling started for ${currentUser.role}`);
+        } else {
+            console.log(`[INIT] Approval system not needed for role: ${currentUser.role}`);
+        }
+    } else {
+        console.warn('[INIT] ⚠️ currentUser not found, cannot initialize approval system');
     }
 }
 

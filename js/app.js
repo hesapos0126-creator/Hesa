@@ -28,7 +28,7 @@ const rolePermissions = {
     },
     cashier: {
         modules: ['dashboard', 'pos', 'returns', 'inventory', 'customers', 'reports'],
-        viewOnly: ['inventory', 'reports']
+        viewOnly: ['reports']  // Removed 'inventory' to allow action buttons, but keep 'reports' read-only
     },
     staff: {
         modules: ['dashboard', 'inventory', 'floor-sales', 'customers', 'reports'],
@@ -36,7 +36,7 @@ const rolePermissions = {
     },
     salesperson: {
         modules: ['dashboard', 'floor-sales', 'inventory'],
-        viewOnly: ['inventory']
+        viewOnly: ['inventory']  // Keep inventory view-only for Salesperson
     },
     'inventory manager': {
         modules: ['inventory'],
@@ -1304,15 +1304,46 @@ async function handleProductSubmit(e) {
         sizeStock: sizeStock
     };
 
-    if (id) {
-        await db.products.update(id, data);
+    // Check if Cashier needs approval for edit
+    if (id && checkApprovalRequired('editProduct', currentUser.role)) {
+        // Cashier is editing an existing product - requires approval
+        const requestId = await requestApproval('editProduct', { productId: id, changes: data });
+        
+        if (!requestId) return;
+        
+        // Show waiting modal
+        openWaitingApprovalModal('GM or Admin', requestId);
+        
+        // Poll for approval
+        await pollApprovalStatus(
+            requestId,
+            // onApproved callback
+            async () => {
+                await db.products.update(id, data);
+                await logAction('EDIT_PRODUCT', `Product ${data.name} edited by ${currentUser.username} (Cashier).`);
+                closeProductModal(true);
+                loadInventory();
+            },
+            // onRejected callback
+            () => {
+                closeProductModal(false);
+                loadInventory();
+            }
+        );
     } else {
-        await db.products.add(data);
-        productDraft = null; // Clear draft on successful Add
-    }
+        // Admin/GM can save directly
+        if (id) {
+            await db.products.update(id, data);
+            await logAction('EDIT_PRODUCT', `Product ${data.name} edited by ${currentUser.username}.`);
+        } else {
+            await db.products.add(data);
+            productDraft = null; // Clear draft on successful Add
+            await logAction('ADD_PRODUCT', `Product ${data.name} added by ${currentUser.username}.`);
+        }
 
-    closeProductModal(true);
-    loadInventory();
+        closeProductModal(true);
+        loadInventory();
+    }
 }
 
 async function editProduct(id) {

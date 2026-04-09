@@ -201,11 +201,14 @@ window.submitApprovalDecision = async function(decisionStatus) {
         console.log('[DEBUG] ✅ Approver username:', approverName);
 
         // Step 4: Build and log full payload BEFORE sending
+        // CRITICAL: Backend expects 'approverPassword' (NOT 'password') and 'action' (NOT 'status')
+        // Also convert decisionStatus ('APPROVED'/'REJECTED') to action ('approve'/'reject')
+        const actionValue = decisionStatus === 'APPROVED' ? 'approve' : 'reject';
         const payload = { 
             requestId: reqId, 
             approverUsername: approverName, 
-            password: pwd, 
-            status: decisionStatus 
+            approverPassword: pwd, 
+            action: actionValue
         };
         
         console.log('[DEBUG] ✅ Sending approval payload:', payload);

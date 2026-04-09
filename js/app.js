@@ -1274,75 +1274,171 @@ function closeProductModal(skipDraft = false) {
 }
 
 async function handleProductSubmit(e) {
-    e.preventDefault();
-    const id = document.getElementById('prod-id').value;
-    // Collect Size Stock
-    const sizeStock = {};
-    const sizes = [];
-    document.querySelectorAll('#size-stock-rows > div').forEach(row => {
-        const color = row.querySelector('.size-color-input').value.trim();
-        const name = row.querySelector('.size-name-input').value.trim();
-        const qty = parseInt(row.querySelector('.size-qty-input').value) || 0;
-        if (name) {
-            const variantName = color ? `${color} - ${name}` : name;
-            sizeStock[variantName] = qty;
-            sizes.push(variantName);
+    try {
+        e.preventDefault();
+        
+        // Get product ID from hidden input
+        const idInput = document.getElementById('prod-id');
+        if (!idInput) {
+            console.error('[ERROR] prod-id input not found');
+            showNotification('Error: Form element missing (prod-id)', 'error');
+            return;
         }
-    });
-
-    const data = {
-        name: document.getElementById('prod-name').value,
-        code: document.getElementById('prod-code').value.trim(),
-        barcode: document.getElementById('prod-barcode').value,
-        category: document.getElementById('prod-category').value,
-        color: document.getElementById('prod-color').value,
-        internalDesc: document.getElementById('prod-internal-desc').value.trim(),
-        price: parseFloat(document.getElementById('prod-price').value),
-        discount: parseFloat(document.getElementById('prod-discount').value),
-        stock: parseInt(document.getElementById('prod-stock').value),
-        sizes: sizes,
-        sizeStock: sizeStock
-    };
-
-    // Check if Cashier needs approval for edit
-    if (id && checkApprovalRequired('editProduct', currentUser.role)) {
-        // Cashier is editing an existing product - requires approval
-        const requestId = await requestApproval('editProduct', { productId: id, changes: data });
+        const id = idInput.value;
+        console.log('[DEBUG] Product ID:', id || 'NEW');
         
-        if (!requestId) return;
+        // Collect Size Stock
+        const sizeStock = {};
+        const sizes = [];
+        const sizeRows = document.querySelectorAll('#size-stock-rows > div');
+        console.log('[DEBUG] Found', sizeRows.length, 'size rows');
         
-        // Show waiting modal
-        openWaitingApprovalModal('GM or Admin', requestId);
-        
-        // Poll for approval
-        await pollApprovalStatus(
-            requestId,
-            // onApproved callback
-            async () => {
-                await db.products.update(id, data);
-                await logAction('EDIT_PRODUCT', `Product ${data.name} edited by ${currentUser.username} (Cashier).`);
-                closeProductModal(true);
-                loadInventory();
-            },
-            // onRejected callback
-            () => {
-                closeProductModal(false);
-                loadInventory();
+        sizeRows.forEach(row => {
+            try {
+                const colorInput = row.querySelector('.size-color-input');
+                const nameInput = row.querySelector('.size-name-input');
+                const qtyInput = row.querySelector('.size-qty-input');
+                
+                if (!colorInput || !nameInput || !qtyInput) {
+                    console.warn('[WARN] Size row missing input elements');
+                    return;
+                }
+                
+                const color = colorInput.value.trim();
+                const name = nameInput.value.trim();
+                const qty = parseInt(qtyInput.value) || 0;
+                
+                if (name) {
+                    const variantName = color ? `${color} - ${name}` : name;
+                    sizeStock[variantName] = qty;
+                    sizes.push(variantName);
+                }
+            } catch (err) {
+                console.warn('[WARN] Error processing size row:', err);
             }
-        );
-    } else {
-        // Admin/GM can save directly
-        if (id) {
-            await db.products.update(id, data);
-            await logAction('EDIT_PRODUCT', `Product ${data.name} edited by ${currentUser.username}.`);
-        } else {
-            await db.products.add(data);
-            productDraft = null; // Clear draft on successful Add
-            await logAction('ADD_PRODUCT', `Product ${data.name} added by ${currentUser.username}.`);
+        });
+        
+        console.log('[DEBUG] Collected sizes:', sizes);
+        
+        // Collect form data with error handling
+        const nameEl = document.getElementById('prod-name');
+        const codeEl = document.getElementById('prod-code');
+        const barcodeEl = document.getElementById('prod-barcode');
+        const categoryEl = document.getElementById('prod-category');
+        const colorEl = document.getElementById('prod-color');
+        const descEl = document.getElementById('prod-internal-desc');
+        const priceEl = document.getElementById('prod-price');
+        const discountEl = document.getElementById('prod-discount');
+        const stockEl = document.getElementById('prod-stock');
+        
+        // Validate all required elements exist
+        const requiredElements = {
+            'prod-name': nameEl,
+            'prod-code': codeEl,
+            'prod-barcode': barcodeEl,
+            'prod-category': categoryEl,
+            'prod-price': priceEl,
+            'prod-discount': discountEl,
+            'prod-stock': stockEl
+        };
+        
+        for (const [name, el] of Object.entries(requiredElements)) {
+            if (!el) {
+                console.error(`[ERROR] Required element not found: ${name}`);
+                showNotification(`Error: Form element missing (${name})`, 'error');
+                return;
+            }
         }
+        
+        const data = {
+            name: nameEl.value.trim(),
+            code: codeEl.value.trim(),
+            barcode: barcodeEl.value.trim(),
+            category: categoryEl.value,
+            color: colorEl ? colorEl.value.trim() : '',
+            internalDesc: descEl ? descEl.value.trim() : '',
+            price: parseFloat(priceEl.value),
+            discount: parseFloat(discountEl.value),
+            stock: parseInt(stockEl.value),
+            sizes: sizes,
+            sizeStock: sizeStock
+        };
+        
+        console.log('[DEBUG] Form data collected:', data);
+        
+        // Validate data
+        if (!data.name) {
+            showNotification('Product name is required', 'error');
+            return;
+        }
+        if (!data.barcode) {
+            showNotification('Barcode is required', 'error');
+            return;
+        }
+        if (isNaN(data.price) || data.price < 0) {
+            showNotification('Valid price is required', 'error');
+            return;
+        }
+        
+        // Check if Cashier needs approval for edit
+        if (id && checkApprovalRequired('editProduct', currentUser.role)) {
+            console.log('[DEBUG] Edit requires approval for', currentUser.role);
+            
+            // Cashier is editing an existing product - requires approval
+            const requestId = await requestApproval('editProduct', { productId: id, changes: data });
+            
+            if (!requestId) {
+                console.warn('[WARN] No approval request ID received');
+                return;
+            }
+            
+            console.log('[DEBUG] Approval request created:', requestId);
+            
+            // Show waiting modal
+            openWaitingApprovalModal('GM or Admin', requestId);
+            
+            // Poll for approval
+            await pollApprovalStatus(
+                requestId,
+                // onApproved callback
+                async () => {
+                    console.log('[DEBUG] Approval received, updating product');
+                    await db.products.update(id, data);
+                    await logAction('EDIT_PRODUCT', `Product ${data.name} edited by ${currentUser.username} (Cashier).`);
+                    closeProductModal(true);
+                    loadInventory();
+                    showNotification('✅ Product updated successfully', 'success');
+                },
+                // onRejected callback
+                () => {
+                    console.log('[DEBUG] Approval rejected');
+                    closeProductModal(false);
+                    loadInventory();
+                }
+            );
+        } else {
+            // Admin/GM can save directly
+            console.log('[DEBUG] Direct save for', currentUser.role);
+            
+            if (id) {
+                console.log('[DEBUG] Updating existing product:', id);
+                await db.products.update(id, data);
+                await logAction('EDIT_PRODUCT', `Product ${data.name} edited by ${currentUser.username}.`);
+                showNotification('✅ Product updated successfully', 'success');
+            } else {
+                console.log('[DEBUG] Adding new product');
+                await db.products.add(data);
+                productDraft = null; // Clear draft on successful Add
+                await logAction('ADD_PRODUCT', `Product ${data.name} added by ${currentUser.username}.`);
+                showNotification('✅ Product added successfully', 'success');
+            }
 
-        closeProductModal(true);
-        loadInventory();
+            closeProductModal(true);
+            loadInventory();
+        }
+    } catch (err) {
+        console.error('[ERROR] handleProductSubmit failed:', err, err.stack);
+        showNotification('Error saving product: ' + err.message, 'error');
     }
 }
 

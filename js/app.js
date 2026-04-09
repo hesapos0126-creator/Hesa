@@ -163,12 +163,29 @@ window.submitApprovalDecision = async function(decisionStatus) {
     try {
         console.log('[APPROVAL] 🔐 submitApprovalDecision called with status:', decisionStatus);
         
+        // CRITICAL FIX #1: HIDE MODAL IMMEDIATELY (before any async operations)
+        // This prevents polling from reopening it while submission is in progress
+        const modal = document.getElementById('modal-approve-action');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            console.log('[APPROVAL] ✅ Modal hidden immediately to prevent re-opening');
+        }
+        
+        // CRITICAL FIX #2: Pause polling while submission is in progress
+        if (approvalPollingInterval) {
+            clearInterval(approvalPollingInterval);
+            console.log('[APPROVAL] ⏸️  Polling paused during submission');
+        }
+        
         // Step 1: Get password
         const passwordField = document.getElementById('approver-password');
         const pwd = (passwordField && passwordField.value) || '';
         if (!pwd.trim()) { 
             console.warn('[APPROVAL] ⚠️ Password field is empty');
-            alert('Please enter your password.'); 
+            alert('Please enter your password.');
+            // Restart polling since submission was aborted
+            startApprovalPolling();
             return; 
         }
         
@@ -193,7 +210,9 @@ window.submitApprovalDecision = async function(decisionStatus) {
             console.error('[APPROVAL] ❌ CRITICAL: Approval failed - Request ID not found in DOM or Global State');
             console.error('[APPROVAL] Hidden field exists:', !!hiddenInput, 'Value:', hiddenInput?.value);
             console.error('[APPROVAL] Global currentApprovalRequestId:', window.currentApprovalRequestId);
-            alert('❌ CRITICAL: Request ID is missing. Please reload and try again.'); 
+            alert('❌ CRITICAL: Request ID is missing. Please reload and try again.');  
+            // Restart polling since submission was aborted
+            startApprovalPolling();
             return; 
         }
 
@@ -230,33 +249,41 @@ window.submitApprovalDecision = async function(decisionStatus) {
         } catch (fetchErr) {
             console.error('[DEBUG] ❌ Fetch error:', fetchErr);
             alert('Network error: Could not reach server. ' + fetchErr.message);
+            // Restart polling since submission failed
+            startApprovalPolling();
             return;
         }
 
         // Step 6: Handle response
         if (res && res.ok) {
             console.log('[DEBUG] ✅ Approval decision successful');
-            // Hide modal
-            const modal = document.getElementById('modal-approve-action');
-            if (modal) {
-                modal.classList.add('hidden');
-                modal.classList.remove('flex');
-            }
             // Clear fields
             if (hiddenInput) hiddenInput.value = '';
             if (passwordField) passwordField.value = '';
             alert('✅ Action successfully ' + decisionStatus);
-            // Refresh page to reflect changes
-            setTimeout(() => window.location.reload(), 500);
+            
+            // CRITICAL FIX #3: After successful submission, pause polling for 10 seconds to let backend settle
+            console.log('[APPROVAL] ⏳ Waiting 10 seconds for backend to settle before restarting polling...');
+            setTimeout(() => {
+                console.log('[APPROVAL] ✅ Restarting polling after backend settlement');
+                // Clear dismissed requests set on restart
+                modalDismissedRequestIds.clear();
+                currentModalRequestId = null;
+                startApprovalPolling();
+            }, 10000);
         } else {
             console.error('[DEBUG] ❌ Backend returned error status:', res?.status);
             const err = res ? await res.json() : { error: 'Unknown error' };
             console.error('[DEBUG] Backend error details:', err);
             alert('❌ Backend Error: ' + (err.message || err.error || 'Failed to process approval'));
+            // Restart polling if submission failed
+            startApprovalPolling();
         }
     } catch (e) {
         console.error('[DEBUG] ❌ Exception in submitApprovalDecision:', e);
         alert('❌ System error occurred: ' + (e.message || 'Unknown error'));
+        // Restart polling on exception
+        startApprovalPolling();
     }
 };
 
@@ -4480,6 +4507,12 @@ async function importBackup(input) {
 
 let approvalPollingInterval = null;
 
+// Track the current request ID displayed in modal to prevent loops
+let currentModalRequestId = null;
+
+// Flag to prevent re-opening modal for dismissed requests
+let modalDismissedRequestIds = new Set();
+
 /**
  * Check if a specific action requires approval based on user role
  * @param {string} action - Action type (deleteProduct, processReturn, editReports, deleteCustomer)
@@ -4704,9 +4737,18 @@ function openApproveActionModal(request) {
 function closeApproveActionModal() {
     const modal = document.getElementById('modal-approve-action');
     if (modal) {
+        const requestId = window.currentApprovalRequestId;
+        console.log('[MODAL] 🔒 Modal minimized by GM, caching dismiss for request ID:', requestId);
+        
+        // CRITICAL FIX: Cache this request ID to prevent polling from re-opening the same request
+        if (requestId) {
+            modalDismissedRequestIds.add(requestId);
+            console.log('[MODAL] ✅ Request added to dismissed set, polling will skip it');
+        }
+        
         modal.classList.add('hidden');
         modal.classList.remove('flex');
-        console.log('[MODAL] Modal minimized/dismissed');
+        console.log('[MODAL] ✅ Modal hidden');
     }
 }
 
@@ -4824,6 +4866,14 @@ function startApprovalPolling() {
     approvalPollingInterval = setInterval(async () => {
         try {
             console.log(`[POLLING] 🔍 Checking for pending approvals for ${currentUser.role}...`);
+            
+            // CRITICAL FIX: SKIP POLLING IF MODAL IS ALREADY OPEN - prevents infinite loop
+            const modal = document.getElementById('modal-approve-action');
+            if (modal && !modal.classList.contains('hidden')) {
+                console.log('[POLLING] ⏸️  Modal already open - skipping this poll to prevent infinite loop');
+                return;
+            }
+            
             const response = await fetch(`/api/approvals/pending?role=${currentUser.role}`);
             
             if (!response.ok) {
@@ -4836,17 +4886,22 @@ function startApprovalPolling() {
             
             // If there's a pending request, open modal for first one
             if (requests && requests.length > 0) {
-                console.log('[POLLING] ✨ PENDING REQUEST FOUND!', requests[0]);
+                const requestId = requests[0]._id || requests[0].id;
+                console.log('[POLLING] ✨ PENDING REQUEST FOUND! ID:', requestId);
+                
+                // CRITICAL FIX: Check if this request was already dismissed by GM
+                if (modalDismissedRequestIds.has(requestId)) {
+                    console.log('[POLLING] ⏭️  Request was dismissed by GM - skipping (will check next poll)');
+                    return;
+                }
                 
                 // Only show modal if not already shown for this request
-                const modal = document.getElementById('modal-approve-action');
-                console.log('[POLLING] Modal element found:', !!modal, 'Hidden:', modal?.classList.contains('hidden'));
-                
                 if (modal && modal.classList.contains('hidden')) {
                     console.log('[POLLING] Opening modal for pending request...');
+                    currentModalRequestId = requestId;
                     openApproveActionModal(requests[0]);
                 } else {
-                    console.log('[POLLING] Modal already visible or not found, skipping');
+                    console.log('[POLLING] Modal not found or already visible, skipping');
                 }
             }
         } catch (err) {

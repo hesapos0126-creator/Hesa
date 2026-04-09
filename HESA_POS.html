@@ -194,7 +194,7 @@
     </div>
 
     <!-- Sidebar Navigation -->
-    <aside class="w-64 hidden md:flex md:flex-col bg-brand-dark text-white shadow-2xl z-20 transition-all duration-300 fixed md:static h-screen md:h-auto" id="sidebar">
+    <aside class="w-64 flex flex-col bg-brand-dark text-white shadow-2xl z-40 transition-all duration-300 fixed md:static h-screen md:h-auto md:translate-x-0 -translate-x-full" id="sidebar">
         <div class="p-6 flex items-center gap-3 border-b border-gray-800">
             <div
                 class="w-10 h-10 rounded-lg bg-brand-gold flex items-center justify-center text-brand-dark font-bold text-xl">
@@ -206,50 +206,50 @@
         </div>
 
         <nav class="flex-1 py-6 px-3 space-y-2">
-            <button onclick="router('dashboard')"
+            <button onclick="router('dashboard'); if(window.innerWidth < 768) document.getElementById('sidebar').classList.add('-translate-x-full')"
                 class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/10 transition-colors text-gray-300 hover:text-white"
                 id="nav-dashboard">
                 <i class="fa-solid fa-chart-pie w-6"></i>
                 <span class="font-medium">Dashboard</span>
             </button>
-            <button onclick="router('pos')"
+            <button onclick="router('pos'); if(window.innerWidth < 768) document.getElementById('sidebar').classList.add('-translate-x-full')"
                 class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/10 transition-colors text-gray-300 hover:text-white"
                 id="nav-pos">
                 <i class="fa-solid fa-cash-register w-6"></i>
                 <span class="font-medium">Point of Sale</span>
             </button>
-            <button onclick="router('inventory')"
+            <button onclick="router('inventory'); if(window.innerWidth < 768) document.getElementById('sidebar').classList.add('-translate-x-full')"
                 class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/10 transition-colors text-gray-300 hover:text-white"
                 id="nav-inventory">
                 <i class="fa-solid fa-boxes-stacked w-6"></i>
                 <span class="font-medium">Inventory</span>
             </button>
-            <button onclick="router('returns')"
+            <button onclick="router('returns'); if(window.innerWidth < 768) document.getElementById('sidebar').classList.add('-translate-x-full')"
                 class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/10 transition-colors text-gray-300 hover:text-white"
                 id="nav-returns">
                 <i class="fa-solid fa-rotate-left w-6"></i>
                 <span class="font-medium">Returns</span>
             </button>
-            <button onclick="router('floor-sales')"
+            <button onclick="router('floor-sales'); if(window.innerWidth < 768) document.getElementById('sidebar').classList.add('-translate-x-full')"
                 class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/10 transition-colors text-gray-300 hover:text-white"
                 id="nav-floor-sales">
                 <i class="fa-solid fa-mobile-screen-button w-6"></i>
                 <span class="font-medium">Floor Scan</span>
             </button>
 
-            <button onclick="router('customers')"
+            <button onclick="router('customers'); if(window.innerWidth < 768) document.getElementById('sidebar').classList.add('-translate-x-full')"
                 class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/10 transition-colors text-gray-300 hover:text-white"
                 id="nav-customers">
                 <i class="fa-solid fa-users w-6"></i>
                 <span class="font-medium">Customers</span>
             </button>
-            <button onclick="router('reports')"
+            <button onclick="router('reports'); if(window.innerWidth < 768) document.getElementById('sidebar').classList.add('-translate-x-full')"
                 class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/10 transition-colors text-gray-300 hover:text-white"
                 id="nav-reports">
                 <i class="fa-solid fa-file-invoice-dollar w-6"></i>
                 <span class="font-medium">Reports</span>
             </button>
-            <button onclick="router('logs')"
+            <button onclick="router('logs'); if(window.innerWidth < 768) document.getElementById('sidebar').classList.add('-translate-x-full')"
                 class="nav-item w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/10 transition-colors text-gray-300 hover:text-white"
                 id="nav-logs">
                 <i class="fa-solid fa-shield-halved w-6"></i>
@@ -290,7 +290,7 @@
         <!-- Top Bar (Mobile Toggle & Search) -->
         <header class="h-16 bg-white shadow-sm flex items-center justify-between px-3 md:px-6 z-10 shrink-0">
             <button class="md:hidden text-gray-600 focus:outline-none"
-                onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full')">
+                onclick="const sb = document.getElementById('sidebar'); sb.classList.toggle('-translate-x-full')">
                 <i class="fa-solid fa-bars text-xl"></i>
             </button>
             <h2 class="text-lg md:text-xl font-bold text-gray-800" id="page-title">Dashboard</h2>

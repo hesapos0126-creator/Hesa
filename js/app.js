@@ -149,6 +149,99 @@ function applyViewOnlyRestrictions(viewOnlyModules) {
     }
 }
 
+// Global variable to store current approval request ID
+let currentApprovalRequestId = null;
+
+// ===== GLOBAL SCOPE APPROVAL FUNCTIONS (Accessible from HTML onclick handlers) =====
+
+/**
+ * Submit approval decision (APPROVED or REJECTED) - GLOBAL SCOPE
+ * @param {string} decisionStatus - Either 'APPROVED' or 'REJECTED'
+ */
+window.submitApprovalDecision = async function(decisionStatus) {
+    try {
+        console.log('[GLOBAL] submitApprovalDecision called with status:', decisionStatus);
+        
+        const pwd = document.getElementById('approver-password').value;
+        if (!pwd) {
+            alert('Please enter your password.');
+            return;
+        }
+        
+        if (!currentApprovalRequestId) {
+            alert('Error: No request ID found.');
+            return;
+        }
+
+        const res = await fetch('/api/approvals/respond', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                requestId: currentApprovalRequestId, 
+                approverUsername: currentUser.username, 
+                password: pwd, 
+                status: decisionStatus 
+            })
+        });
+
+        if (res.ok) {
+            console.log('[GLOBAL] Approval decision successful');
+            document.getElementById('modal-approve-action').classList.add('hidden');
+            document.getElementById('modal-approve-action').classList.remove('flex');
+            document.getElementById('approver-password').value = '';
+            alert('✅ Action successfully ' + decisionStatus.toLowerCase());
+            // Trigger refresh of audit logs
+            if (typeof loadAuditLogs === 'function') {
+                await loadAuditLogs();
+            }
+        } else {
+            const err = await res.json();
+            console.error('[GLOBAL] Approval decision error:', err);
+            alert('Error: ' + (err.error || err.message || 'Unknown error'));
+        }
+    } catch (e) {
+        console.error('[GLOBAL] Exception in submitApprovalDecision:', e);
+        alert('System error occurred: ' + e.message);
+    }
+};
+
+/**
+ * Check for pending approvals manually via notification bell - GLOBAL SCOPE
+ */
+window.checkManualNotifications = async function() {
+    try {
+        console.log('[GLOBAL] checkManualNotifications called');
+        
+        if (!currentUser || (currentUser.role !== 'gm' && currentUser.role !== 'admin')) {
+            alert('You have no new notifications.');
+            return;
+        }
+        
+        const res = await fetch('/api/approvals/pending?role=' + currentUser.role);
+        const data = await res.json();
+        console.log('[GLOBAL] Pending approvals response:', data);
+        
+        if (data && data.length > 0) {
+            console.log('[GLOBAL] Found pending approval, opening modal');
+            currentApprovalRequestId = data[0]._id;
+            
+            // Populate modal fields
+            document.getElementById('approve-requester-name').textContent = data[0].requesterUsername;
+            document.getElementById('approve-requester-role').textContent = (data[0].requesterRole || 'Cashier').toUpperCase();
+            document.getElementById('approve-action-type').textContent = data[0].action;
+            document.getElementById('approve-action-details').textContent = JSON.stringify(data[0].details, null, 2);
+            
+            document.getElementById('modal-approve-action').classList.remove('hidden');
+            document.getElementById('modal-approve-action').classList.add('flex');
+        } else {
+            alert('No pending approvals at the moment.');
+        }
+    } catch (e) {
+        console.error('[GLOBAL] Exception in checkManualNotifications:', e);
+        alert('Error checking notifications: ' + e.message);
+    }
+};
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
     checkAuth();
@@ -4497,109 +4590,6 @@ function closeApproveActionModal() {
 }
 
 /**
- * Submit approval decision (APPROVED or REJECTED)
- * @param {string} decisionStatus - Either 'APPROVED' or 'REJECTED'
- */
-async function submitApprovalDecision(decisionStatus) {
-    try {
-        console.log(`[APPROVAL DECISION] Processing ${decisionStatus} decision...`);
-        
-        // Step 1: Get password from input
-        const passwordInput = document.getElementById('approver-password');
-        if (!passwordInput) {
-            console.error('[APPROVAL DECISION] ❌ Password input not found with id "approver-password"');
-            alert('Error: Password field not found in the form.');
-            return;
-        }
-        
-        const pwd = passwordInput.value;
-        console.log('[APPROVAL DECISION] Password retrieved from input');
-        
-        // Step 2: Validate password is not empty
-        if (!pwd) {
-            console.warn('[APPROVAL DECISION] ⚠️ Password is empty');
-            alert('Please enter your password to confirm.');
-            return;
-        }
-        
-        // Step 3: Get request ID
-        const requestIdField = document.getElementById('approve-request-id');
-        if (!requestIdField) {
-            console.error('[APPROVAL DECISION] ❌ Request ID field not found');
-            alert('Error: Request ID field not found.');
-            return;
-        }
-        
-        const requestId = requestIdField.value;
-        console.log(`[APPROVAL DECISION] Request ID: ${requestId}`);
-        
-        // Step 3b: Validate we have a request ID
-        if (!requestId) {
-            console.error('[APPROVAL DECISION] ❌ Request ID is empty');
-            alert('Error: No approval request ID set.');
-            return;
-        }
-        
-        // Step 3c: Validate currentUser
-        if (!currentUser || !currentUser.username) {
-            console.error('[APPROVAL DECISION] ❌ currentUser not set or missing username');
-            alert('Error: User not authenticated.');
-            return;
-        }
-        
-        console.log(`[APPROVAL DECISION] Approver: ${currentUser.username}`);
-        
-        // Step 4: Build request payload
-        const payload = {
-            requestId: requestId,
-            approverUsername: currentUser.username,
-            password: pwd,
-            status: decisionStatus
-        };
-        
-        console.log('[APPROVAL DECISION] Sending decision to backend...', { requestId, approverUsername: currentUser.username, status: decisionStatus });
-        
-        // Step 4: Send decision to backend
-        const response = await fetch('/api/approvals/respond', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        
-        console.log(`[APPROVAL DECISION] Server response status: ${response.status}`);
-        
-        // Step 5: Handle server response
-        const result = await response.json();
-        
-        if (!response.ok) {
-            console.error(`[APPROVAL DECISION] ❌ Server rejected request:`, result);
-            const errorMsg = result.error || result.message || `HTTP ${response.status}`;
-            alert(`Decision failed: ${errorMsg}`);
-            return;
-        }
-        
-        // Success!
-        console.log(`[APPROVAL DECISION] ✅ Decision ${decisionStatus} submitted successfully`, result);
-        
-        // Clear password field and close modal
-        passwordInput.value = '';
-        closeApproveActionModal();
-        
-        // Show success alert
-        alert(`✅ Action was successfully ${decisionStatus.toLowerCase()}.`);
-        
-        // Reload audit logs to show the new record
-        await loadAuditLogs();
-        
-        console.log(`[APPROVAL DECISION] ✅ ✅ ${decisionStatus} process complete`);
-        
-    } catch (err) {
-        console.error('[APPROVAL DECISION] ❌ Error during approval decision:', err);
-        alert(`Error processing decision: ${err.message}`);
-    }
-}
-
-/**
  * Handle approval form submission (Approve button)
  * @param {Event} event - Form submit event
  */
@@ -4741,57 +4731,6 @@ function stopApprovalPolling() {
     if (approvalPollingInterval) {
         clearInterval(approvalPollingInterval);
         approvalPollingInterval = null;
-    }
-}
-
-/**
- * Manually check for pending approvals via notification bell button
- * Opens approval modal if pending requests exist
- */
-async function checkManualNotifications() {
-    try {
-        console.log('[MANUAL NOTIFICATION] User clicked notification bell');
-        
-        // Step 1: Check if user is GM or Admin
-        if (!currentUser || !['gm', 'admin'].includes(currentUser.role)) {
-            console.log('[MANUAL NOTIFICATION] User is not GM/Admin (role:', currentUser?.role, ')');
-            alert('You have no new notifications.');
-            return;
-        }
-        
-        console.log(`[MANUAL NOTIFICATION] Checking for pending approvals for ${currentUser.role}...`);
-        
-        // Step 2: Fetch pending requests for this role
-        const res = await fetch('/api/approvals/pending?role=' + currentUser.role);
-        
-        if (!res.ok) {
-            console.error('[MANUAL NOTIFICATION] Failed to fetch pending approvals, status:', res.status);
-            alert('Failed to check for approvals. Please try again.');
-            return;
-        }
-        
-        const data = await res.json();
-        console.log(`[MANUAL NOTIFICATION] Found ${data?.length || 0} pending request(s)`);
-        
-        // Step 3: If no pending requests, show message
-        if (!data || data.length === 0) {
-            console.log('[MANUAL NOTIFICATION] No pending approvals');
-            alert('No pending approvals at the moment.');
-            return;
-        }
-        
-        // Step 4: If there are pending requests, open modal for first one
-        const firstRequest = data[0];
-        console.log('[MANUAL NOTIFICATION] Opening modal for pending request:', firstRequest._id);
-        
-        // Populate modal with request details
-        openApproveActionModal(firstRequest);
-        
-        console.log('[MANUAL NOTIFICATION] ✅ Modal opened successfully');
-        
-    } catch (err) {
-        console.error('[MANUAL NOTIFICATION] Error checking notifications:', err);
-        alert('Error checking for approvals: ' + err.message);
     }
 }
 

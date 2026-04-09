@@ -162,31 +162,43 @@ let currentApprovalRequestId = null;
 window.submitApprovalDecision = async function(decisionStatus) {
     try {
         // Step 1: Get password
-        const pwd = document.getElementById('approver-password').value;
-        if (!pwd) { 
+        const passwordField = document.getElementById('approver-password');
+        const pwd = (passwordField && passwordField.value) || '';
+        if (!pwd.trim()) { 
             alert('Please enter your password.'); 
             return; 
         }
         
-        // Step 2: FOOLPROOF REQUEST ID: Grab from hidden input FIRST, fallback to global
+        // Step 2: ULTRA-BULLETPROOF REQUEST ID: Multiple extraction methods
         let reqId = null;
+        
+        // Method 1: Try hidden input field FIRST (most reliable)
         const hiddenInput = document.getElementById('approve-request-id');
-        if (hiddenInput && hiddenInput.value) { 
-            reqId = hiddenInput.value; 
-            console.log('[DEBUG] Request ID from hidden input:', reqId);
+        if (hiddenInput && hiddenInput.value && hiddenInput.value.trim()) { 
+            reqId = hiddenInput.value.trim(); 
+            console.log('[DEBUG] ✅ Request ID from hidden input:', reqId);
         }
-        if (!reqId) { 
+        
+        // Method 2: Fallback to global variable
+        if (!reqId && window.currentApprovalRequestId) { 
             reqId = window.currentApprovalRequestId; 
-            console.log('[DEBUG] Request ID from global:', reqId);
+            console.log('[DEBUG] ✅ Request ID from global variable:', reqId);
         }
+        
+        // If still no ID, error out
         if (!reqId) { 
-            alert('Error: Request ID is missing from the UI.'); 
+            console.error('[DEBUG] ❌ No request ID found! Hidden field:', hiddenInput?.value, 'Global:', window.currentApprovalRequestId);
+            alert('❌ CRITICAL: Request ID is missing. Please reload and try again.'); 
             return; 
         }
 
-        // Step 3: FOOLPROOF USERNAME: Handle different local storage structures
-        const approverName = (currentUser && (currentUser.username || currentUser.name || currentUser.id)) || 'Admin';
-        console.log('[DEBUG] Approver username:', approverName);
+        // Step 3: ULTRA-BULLETPROOF USERNAME: Multiple extraction fallbacks
+        let approverName = null;
+        if (currentUser) {
+            approverName = currentUser.username || currentUser.name || currentUser.id || currentUser.email;
+        }
+        approverName = approverName || 'Admin';
+        console.log('[DEBUG] ✅ Approver username:', approverName);
 
         // Step 4: Build and log full payload BEFORE sending
         const payload = { 
@@ -196,32 +208,47 @@ window.submitApprovalDecision = async function(decisionStatus) {
             status: decisionStatus 
         };
         
-        console.log("[DEBUG] Sending approval payload:", payload);
+        console.log('[DEBUG] ✅ Sending approval payload:', payload);
 
-        // Step 5: Send to backend
-        const res = await fetch('/api/approvals/respond', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload)
-        });
-
-        console.log('[DEBUG] Backend response status:', res.status);
+        // Step 5: Send to backend with error handling
+        let res;
+        try {
+            res = await fetch('/api/approvals/respond', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            console.log('[DEBUG] ✅ Backend response status:', res.status);
+        } catch (fetchErr) {
+            console.error('[DEBUG] ❌ Fetch error:', fetchErr);
+            alert('Network error: Could not reach server. ' + fetchErr.message);
+            return;
+        }
 
         // Step 6: Handle response
-        if (res.ok) {
-            console.log('[DEBUG] Approval decision successful');
-            document.getElementById('modal-approve-action').classList.add('hidden');
-            document.getElementById('approver-password').value = '';
+        if (res && res.ok) {
+            console.log('[DEBUG] ✅ Approval decision successful');
+            // Hide modal
+            const modal = document.getElementById('modal-approve-action');
+            if (modal) {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }
+            // Clear fields
+            if (hiddenInput) hiddenInput.value = '';
+            if (passwordField) passwordField.value = '';
             alert('✅ Action successfully ' + decisionStatus);
-            window.location.reload(); // Refresh to reflect changes
+            // Refresh page to reflect changes
+            setTimeout(() => window.location.reload(), 500);
         } else {
-            const err = await res.json();
-            console.error('[DEBUG] Backend rejected request:', err);
-            alert('Backend Error: ' + (err.message || err.error || 'Missing fields'));
+            console.error('[DEBUG] ❌ Backend returned error status:', res?.status);
+            const err = res ? await res.json() : { error: 'Unknown error' };
+            console.error('[DEBUG] Backend error details:', err);
+            alert('❌ Backend Error: ' + (err.message || err.error || 'Failed to process approval'));
         }
     } catch (e) {
-        console.error('[DEBUG] Exception in submitApprovalDecision:', e);
-        alert('System error occurred: ' + e.message);
+        console.error('[DEBUG] ❌ Exception in submitApprovalDecision:', e);
+        alert('❌ System error occurred: ' + (e.message || 'Unknown error'));
     }
 };
 
@@ -243,16 +270,46 @@ window.checkManualNotifications = async function() {
         
         if (data && data.length > 0) {
             console.log('[GLOBAL] Found pending approval, opening modal');
-            currentApprovalRequestId = data[0]._id;
+            const requestData = data[0];
+            const reqId = requestData._id || requestData.id;
+            
+            // CRITICAL FIX: Set global variable
+            window.currentApprovalRequestId = reqId;
+            console.log('[GLOBAL] Set global currentApprovalRequestId:', reqId);
+            
+            // CRITICAL FIX: Set hidden input field (submitApprovalDecision looks here FIRST)
+            const hiddenField = document.getElementById('approve-request-id');
+            if (hiddenField) {
+                hiddenField.value = reqId;
+                console.log('[GLOBAL] Set hidden approve-request-id field:', reqId);
+            } else {
+                console.error('[GLOBAL] approve-request-id hidden field not found!');
+            }
             
             // Populate modal fields
-            document.getElementById('approve-requester-name').textContent = data[0].requesterUsername;
-            document.getElementById('approve-requester-role').textContent = (data[0].requesterRole || 'Cashier').toUpperCase();
-            document.getElementById('approve-action-type').textContent = data[0].action;
-            document.getElementById('approve-action-details').textContent = JSON.stringify(data[0].details, null, 2);
+            document.getElementById('approve-requester-name').textContent = requestData.requesterUsername || 'Unknown';
+            document.getElementById('approve-requester-role').textContent = (requestData.requesterRole || 'Cashier').toUpperCase();
+            document.getElementById('approve-action-type').textContent = requestData.action || 'Unknown';
+            document.getElementById('approve-action-details').textContent = JSON.stringify(requestData.details || {}, null, 2);
             
-            document.getElementById('modal-approve-action').classList.remove('hidden');
-            document.getElementById('modal-approve-action').classList.add('flex');
+            // Clear password field
+            const passwordField = document.getElementById('approver-password');
+            if (passwordField) {
+                passwordField.value = '';
+                console.log('[GLOBAL] Cleared password field');
+            }
+            
+            // Show modal
+            const modal = document.getElementById('modal-approve-action');
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                // Focus on password
+                if (passwordField) {
+                    setTimeout(() => passwordField.focus(), 100);
+                }
+                console.log('[GLOBAL] Modal opened successfully');
+            }
         } else {
             alert('No pending approvals at the moment.');
         }
@@ -4545,9 +4602,7 @@ function openApproveActionModal(request) {
         
         console.log('[MODAL] ✅ Modal element found');
         
-        // CRITICAL FIX: Set global currentApprovalRequestId so submitApprovalDecision can find it
-        currentApprovalRequestId = request._id || request.id;
-        console.log('[MODAL] ✅ Set global currentApprovalRequestId:', currentApprovalRequestId);
+        // Note: Global currentApprovalRequestId will be set below with the hidden field
         
         // Populate modal fields - with error checks
         const fields = {
@@ -4567,14 +4622,19 @@ function openApproveActionModal(request) {
             }
         }
         
-        // Set hidden request ID field (for backup compatibility)
+        // CRITICAL: Set hidden request ID field - submitApprovalDecision looks here FIRST
         const requestIdField = document.getElementById('approve-request-id');
+        const finalReqId = request._id || request.id;
         if (requestIdField) {
-            requestIdField.value = request._id || request.id;
-            console.log('[MODAL] ✅ Set request ID field');
+            requestIdField.value = finalReqId;
+            console.log('[MODAL] ✅ Set request ID field in DOM:', finalReqId);
         } else {
-            console.warn('[MODAL] ⚠️ Request ID field not found');
+            console.error('[MODAL] ❌ CRITICAL: Request ID field not found in DOM!');
         }
+        
+        // Also verify global variable is set
+        window.currentApprovalRequestId = finalReqId;
+        console.log('[MODAL] ✅ Also set global currentApprovalRequestId:', finalReqId);
         
         // CRITICAL FIX: Use correct password field ID 'approver-password' (not 'approve-password-input')
         const passwordField = document.getElementById('approver-password');

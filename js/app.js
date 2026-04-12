@@ -477,6 +477,7 @@ function router(view) {
             </div>
         `;
         loadFloorProducts('All', true); // Pass true to skip initial full load
+        loadSentFloorCarts(); // Load history
     }
 }
 
@@ -5386,6 +5387,7 @@ async function performRemoteSend(customerName, viewMode) {
         }
         updateCartUI();
         refreshPendingCartsUI();
+        if (viewMode === 'floor-sales') loadSentFloorCarts();
         alert("✅ Cart sent successfully!");
     } catch (e) {
         console.error(e);
@@ -5600,6 +5602,103 @@ async function filterFloorSearch(query) {
     );
 
     renderFloorProducts(filtered, grid);
+}
+
+// --- FLOOR SENT HISTORY LOGIC ---
+
+async function loadSentFloorCarts() {
+    const historyDiv = document.getElementById('floor-sent-history');
+    if (!historyDiv) return;
+
+    try {
+        // Fetch pending carts for the current user
+        const carts = await db.pending_carts.toArray({
+            where: { field: 'senderName', op: 'equals', value: currentUser.username }
+        });
+
+        if (!carts || carts.length === 0) {
+            historyDiv.innerHTML = '<p class="text-[10px] text-gray-400 italic text-center py-2">No active sent carts</p>';
+            return;
+        }
+
+        // Sort by timestamp decending
+        carts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        historyDiv.innerHTML = '';
+        carts.forEach(c => {
+            const timeStr = new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const itemPreview = c.items.map(i => `${i.qty}x ${i.name}`).join(', ');
+            
+            const div = document.createElement('div');
+            div.className = 'bg-white p-3 rounded-xl border border-gray-100 shadow-sm animate-[fadeIn_0.2s_ease-out]';
+            div.innerHTML = `
+                <div class="flex justify-between items-start mb-1">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-black text-gray-800 truncate">${c.customerName || 'No Name'}</p>
+                        <p class="text-[9px] text-gray-500">${timeStr} • Rs ${c.total.toLocaleString()}</p>
+                    </div>
+                </div>
+                <p class="text-[9px] text-gray-400 truncate mb-2">${itemPreview}</p>
+                <div class="flex gap-2 border-t border-gray-50 pt-2">
+                    <button onclick="editSentCart('${c._id || c.id}')" 
+                        class="flex-1 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-bold hover:bg-blue-100 transition-colors">
+                        <i class="fa-solid fa-pen-to-square mr-1"></i> Edit
+                    </button>
+                    <button onclick="deleteSentCart('${c._id || c.id}')" 
+                        class="flex-1 py-1 bg-red-50 text-red-600 rounded-lg text-[10px] font-bold hover:bg-red-100 transition-colors">
+                        <i class="fa-solid fa-trash-can mr-1"></i> Delete
+                    </button>
+                </div>
+            `;
+            historyDiv.appendChild(div);
+        });
+    } catch (e) {
+        console.error('[ERROR] Failed to load floor history:', e);
+    }
+}
+
+async function editSentCart(id) {
+    if (!confirm('Are you sure you want to pull this cart back for editing? It will be removed from the Cashier\'s list.')) return;
+
+    try {
+        const cartData = await db.pending_carts.get(id);
+        if (!cartData) {
+            alert('Cart not found or already processed!');
+            loadSentFloorCarts();
+            return;
+        }
+
+        // 1. Pull back to floorCart
+        floorCart = cartData.items;
+        document.getElementById('floor-customer-name').value = cartData.customerName || '';
+        
+        // 2. Delete from pending
+        await db.pending_carts.delete(id);
+        
+        // 3. UI Updates
+        updateCartUI();
+        loadSentFloorCarts();
+        refreshPendingCartsUI();
+        showNotification('✅ Cart pulled back for editing', 'success');
+        
+    } catch (e) {
+        console.error('[ERROR] Edit sent cart failed:', e);
+        alert('Failed to retrieve cart.');
+    }
+}
+
+async function deleteSentCart(id) {
+    if (!confirm('Are you sure you want to delete this sent cart?')) return;
+
+    try {
+        await db.pending_carts.delete(id);
+        loadSentFloorCarts();
+        refreshPendingCartsUI();
+        showNotification('🗑️ Sent cart deleted', 'info');
+    } catch (e) {
+        console.error('[ERROR] Delete sent cart failed:', e);
+        alert('Failed to delete cart.');
+    }
 }
 
 async function acceptPendingCart(id) {

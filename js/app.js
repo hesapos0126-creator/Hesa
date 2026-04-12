@@ -466,7 +466,17 @@ function router(view) {
     if (view === 'floor-sales') {
         document.getElementById('floor-sender-name').textContent = currentUser.username;
         updateFloorCategories(); // Dynamic categories
-        loadFloorProducts('All');
+        // Clear search and grid
+        const fSearch = document.getElementById('floor-search');
+        if (fSearch) fSearch.value = '';
+        const grid = document.getElementById('floor-products-grid');
+        if (grid) grid.innerHTML = `
+            <div class="col-span-full py-20 text-center text-gray-400">
+                <i class="fa-solid fa-search text-4xl mb-3 opacity-20"></i>
+                <p class="font-bold">Search and select items to scan</p>
+            </div>
+        `;
+        loadFloorProducts('All', true); // Pass true to skip initial full load
     }
 }
 
@@ -5490,31 +5500,10 @@ async function updateFloorCategories() {
     }
 }
 
-async function loadFloorProducts(category = 'All') {
+async function loadFloorProducts(category = 'All', skipInitialLoad = false) {
     const grid = document.getElementById('floor-products-grid');
     if (!grid) return;
-    grid.innerHTML = '';
-
-    let products = await db.products.toArray();
-    if (category !== 'All') {
-        products = products.filter(p => (p.category || 'None') === category);
-    }
-
-    products.forEach(p => {
-        const div = document.createElement('div');
-        div.className = 'bg-gray-50 p-4 rounded-2xl hover:bg-blue-50 transition-all border border-transparent hover:border-blue-200 cursor-pointer text-center flex flex-col items-center group active:scale-95';
-        div.onclick = () => addToCart(p); // Reuses the main addToCart
-        div.innerHTML = `
-            <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-blue-600 mb-3 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                 <i class="fa-solid fa-plus text-lg"></i>
-            </div>
-            <h4 class="font-black text-sm text-gray-800 line-clamp-1">${p.name}</h4>
-            <p class="text-[10px] text-gray-500 font-bold mb-2">${p.code || p.barcode}</p>
-            <p class="text-sm font-black text-blue-600">Rs ${p.price.toLocaleString()}</p>
-        `;
-        grid.appendChild(div);
-    });
-
+    
     // Add search listener for floor if not already added
     const searchIn = document.getElementById('floor-search');
     if (searchIn && !searchIn.dataset.listened) {
@@ -5522,27 +5511,60 @@ async function loadFloorProducts(category = 'All') {
         searchIn.addEventListener('input', (e) => {
             filterFloorSearch(e.target.value);
         });
+        // Also enter key to add first result
+        searchIn.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const firstBtn = grid.querySelector('.group');
+                if (firstBtn) firstBtn.click();
+                e.target.value = '';
+            }
+        });
     }
-}
 
-async function filterFloorSearch(query) {
-    const grid = document.getElementById('floor-products-grid');
-    if (!grid) return;
-    
-    let products = await db.products.toArray();
-    const q = query.toLowerCase();
-
-    const filtered = products.filter(p => 
-        p.name.toLowerCase().includes(q) || 
-        p.barcode.toLowerCase().includes(q) || 
-        (p.code && p.code.toLowerCase().includes(q))
-    );
+    if (skipInitialLoad) {
+        // Just clear and wait for search
+        return;
+    }
 
     grid.innerHTML = '';
-    filtered.forEach(p => {
+    let products = await db.products.toArray();
+    if (category !== 'All') {
+        products = products.filter(p => (p.category || 'None') === category);
+    }
+    
+    // Default: show nothing or filtered by category
+    if (category === 'All' && !searchIn.value.trim()) {
+        grid.innerHTML = `
+            <div class="col-span-full py-20 text-center text-gray-400">
+                <i class="fa-solid fa-search text-4xl mb-3 opacity-20"></i>
+                <p class="font-bold">Enter Product Code or Name to start</p>
+            </div>
+        `;
+        return;
+    }
+
+    renderFloorProducts(products, grid);
+}
+
+function renderFloorProducts(products, grid) {
+    grid.innerHTML = '';
+    
+    // Sort products by Name or Code
+    products.sort((a, b) => {
+        const nameA = (a.code || a.name).toLowerCase();
+        const nameB = (b.code || b.name).toLowerCase();
+        return nameA.localeCompare(nameB);
+    });
+
+    products.forEach(p => {
         const div = document.createElement('div');
-        div.className = 'bg-gray-50 p-4 rounded-2xl hover:bg-blue-50 transition-all border border-transparent hover:border-blue-200 cursor-pointer text-center flex flex-col items-center group active:scale-95';
-        div.onclick = () => addToCart(p);
+        div.className = 'bg-gray-50 p-4 rounded-2xl hover:bg-blue-50 transition-all border border-transparent hover:border-blue-200 cursor-pointer text-center flex flex-col items-center group active:scale-95 animate-[fadeIn_0.2s_ease-out]';
+        div.onclick = () => {
+             addToCart(p);
+             // Clear search after adding for rapid scanning
+             document.getElementById('floor-search').value = '';
+             document.getElementById('floor-search').focus();
+        };
         div.innerHTML = `
             <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center text-blue-600 mb-3 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-colors">
                  <i class="fa-solid fa-plus text-lg"></i>
@@ -5553,6 +5575,31 @@ async function filterFloorSearch(query) {
         `;
         grid.appendChild(div);
     });
+}
+
+async function filterFloorSearch(query) {
+    const grid = document.getElementById('floor-products-grid');
+    if (!grid) return;
+    
+    const q = query.toLowerCase().trim();
+    if (!q) {
+        grid.innerHTML = `
+            <div class="col-span-full py-20 text-center text-gray-400">
+                <i class="fa-solid fa-search text-4xl mb-3 opacity-20"></i>
+                <p class="font-bold">Search and select items to scan</p>
+            </div>
+        `;
+        return;
+    }
+
+    let products = await db.products.toArray();
+    const filtered = products.filter(p => 
+        p.name.toLowerCase().includes(q) || 
+        p.barcode.toLowerCase().includes(q) || 
+        (p.code && p.code.toLowerCase().includes(q))
+    );
+
+    renderFloorProducts(filtered, grid);
 }
 
 async function acceptPendingCart(id) {

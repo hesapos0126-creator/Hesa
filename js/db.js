@@ -56,6 +56,14 @@ class DBWrapper {
         if(this._whereConfig) this._whereConfig.value = value;
         return this;
     }
+    between(lower, upper, includeLower, includeUpper) {
+        if(this._whereConfig) {
+            this._whereConfig.op = 'between';
+            this._whereConfig.value = [lower, upper];
+            this._whereConfig.include = [includeLower, includeUpper];
+        }
+        return this;
+    }
     orderBy(field) {
         this._orderByConfig = field;
         return this;
@@ -76,7 +84,10 @@ class DBWrapper {
         const res = await this._fetch('count');
         return res ? res.count : 0;
     }
-    async add(item) { return this._fetch('add', { data: item }); }
+    async add(item) {
+        const res = await this._fetch('add', { data: item });
+        return res ? res.id : null;
+    }
     async bulkAdd(items) { return this._fetch('bulkAdd', { data: items }); }
     async update(id, changes) { return this._fetch('update', { id, data: changes }); }
     async delete(id) { return this._fetch('delete', { id }); }
@@ -122,8 +133,13 @@ const db = {
     open() {
         return Promise.resolve();
     },
-    // Mock dexie transaction to simply execute the callback
-    async transaction(mode, tables, callback) {
+    // Mock dexie transaction to find the callback (last argument) and execute it
+    async transaction(mode, ...args) {
+        const callback = args[args.length - 1];
+        if (typeof callback !== 'function') {
+            console.error('[DB] Transaction error: No callback function provided.');
+            return;
+        }
         try {
             return await callback();
         } catch (e) {

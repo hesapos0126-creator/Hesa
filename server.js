@@ -60,7 +60,8 @@ const productSchema = new mongoose.Schema({
     discount: { type: Number, default: 0 },
     stock: { type: Number, default: 0 },
     internalDesc: { type: String },
-    image: { type: String }
+    image: { type: String },
+    sizeStock: { type: Map, of: Number, default: {} }
 }, { timestamps: true });
 const Product = mongoose.model('Product', productSchema);
 
@@ -72,18 +73,33 @@ const saleSchema = new mongoose.Schema({
     total: { type: Number, required: true },
     timestamp: { type: Date, default: Date.now },
     orderType: { type: String },
+    deliveryAddress: { type: String },
+    courierCharges: { type: Number, default: 0 },
+    extraCharges: { type: Number, default: 0 },
+    extraChargesLabel: { type: String },
+    paymentMethod: { type: String },
+    grandTotal: { type: Number },
+    specialDiscount: { type: Number, default: 0 },
     returnCredit: { type: Number, default: 0 },
-    returnBillNo: { type: String }
+    returnBillNo: { type: String },
+    cashReceived: { type: Number, default: 0 },
+    balance: { type: Number, default: 0 },
+    customerName: { type: String }
 }, { timestamps: true });
 const Sale = mongoose.model('Sale', saleSchema);
 
 const returnSchema = new mongoose.Schema({
     returnNumber: { type: String, required: true },
     originalInvoiceNumber: { type: String, required: true },
+    originalSaleId: { type: String },
     barcode: { type: String, required: true },
+    itemName: { type: String },
     returnDate: { type: Date, default: Date.now },
+    qty: { type: Number, default: 1 },
     refundAmount: { type: Number, required: true },
     reason: { type: String },
+    returnType: { type: String },
+    customerName: { type: String },
     isUsed: { type: Boolean, default: false },
     exchangeInvoiceNumber: { type: String }
 }, { timestamps: true });
@@ -245,6 +261,10 @@ app.post('/api/dexie/:collection/:action', async (req, res) => {
                     const { field, op, value } = payload.where;
                     if (op === 'equals') query = query.where(field).equals(value);
                     if (op === 'below') query = query.where(field).lt(value);
+                    if (op === 'between') {
+                        const [lower, upper] = value;
+                        query = query.where(field).gte(lower).lte(upper);
+                    }
                 }
                 if (payload.orderBy) {
                     query = query.sort({ [payload.orderBy]: payload.reverse ? -1 : 1 });

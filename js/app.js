@@ -4544,20 +4544,46 @@ async function requestApproval(action, details) {
             u.username !== currentUser.username // Don't allow approving own request if they have high role
         );
 
-        let selectedUsername = null;
+        let selection = null;
 
-        if (superiors.length === 0) {
-            const proceed = confirm('⚠️ No GM or Admin is currently online. This request will be queued for the first superior who logs in. Do you want to proceed?');
+        // Step 2: Show selection modal and wait for result
+        // We now fetch all GMs/Admins to ensure the list is never empty, indicating online status
+        const allUsersRes = await fetch('/api/dexie/users/toArray', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                where: { field: 'role', op: 'in', value: ['admin', 'gm'] } // Note: Need to check if 'in' op exists, otherwise fetch all
+            })
+        });
+        // Actually, the server-side dexie mock is simple. Let's just fetch all and filter in JS for simplicity.
+        const allUsersResponse = await fetch('/api/dexie/users/toArray', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ })
+        });
+        const allUsers = await allUsersResponse.json();
+        const allSuperiors = allUsers.filter(u => 
+            (u.role?.toLowerCase() === 'gm' || u.role?.toLowerCase() === 'admin') && 
+            u.username !== currentUser.username
+        );
+
+        if (allSuperiors.length === 0) {
+            const proceed = confirm('⚠️ No other GM or Admin accounts found in the system. The request will be sent as a general broadcast. Proceed?');
             if (!proceed) return null;
+            selection = { type: 'broadcast' };
         } else {
-            // Step 2: Show selection modal and wait for result
-            selectedUsername = await openSelectSuperiorModal(superiors);
-            window._lastSelectedSuperior = selectedUsername;
-            if (!selectedUsername && superiors.length > 0) {
-                console.log('[DEBUG] Approval request cancelled by user during superior selection');
-                return null; // Cancelled
+            // Sort to put online users first
+            const sortedSuperiors = allSuperiors.sort((a, b) => (b.isOnline === a.isOnline) ? 0 : b.isOnline ? 1 : -1);
+            selection = await openSelectSuperiorModal(sortedSuperiors);
+            
+            if (!selection) {
+                console.log('[DEBUG] Approval request cancelled by user');
+                return null; // Truly cancelled
             }
         }
+
+        const selectedUsername = selection.type === 'user' ? selection.username : null;
+        window._lastSelectedSuperior = selectedUsername;
 
         // Step 3: Create the request on backend
         const response = await fetch('/api/approvals/request', {
@@ -4603,24 +4629,28 @@ function openSelectSuperiorModal(superiors) {
         
         superiors.forEach(sup => {
             const btn = document.createElement('button');
-            btn.className = 'w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-brand-gold/10 border border-gray-100 rounded-xl transition-all group';
+            const isOnline = sup.isOnline;
+            btn.className = 'w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-brand-gold/10 border border-gray-100 rounded-xl transition-all group relative';
             btn.onclick = () => {
                 modal.classList.add('hidden');
-                resolve(sup.username);
+                resolve({ type: 'user', username: sup.username });
             };
             
             btn.innerHTML = `
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-sm font-bold border border-gray-100 group-hover:border-brand-gold text-brand-dark shadow-sm">
-                        ${sup.username.charAt(0).toUpperCase()}
+                    <div class="relative">
+                        <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-sm font-bold border border-gray-100 group-hover:border-brand-gold text-brand-dark shadow-sm">
+                            ${sup.username.charAt(0).toUpperCase()}
+                        </div>
+                        <span class="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}"></span>
                     </div>
                     <div class="text-left">
-                        <p class="font-bold text-gray-800 text-sm group-hover:text-brand-dark">${sup.username}</p>
+                        <p class="font-bold text-gray-800 text-sm group-hover:text-brand-dark">${sup.username} ${isOnline ? '' : '<span class="text-[9px] text-gray-400 font-normal">(Offline)</span>'}</p>
                         <p class="text-[10px] text-gray-500 uppercase font-black tracking-wider">${sup.role}</p>
                     </div>
                 </div>
                 <div class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-gray-400 group-hover:bg-brand-gold group-hover:text-white transition-colors">
-                    <i class="fa-solid fa-paper-plane text-xs"></i>
+                    <i class="fa-solid fa-chevron-right text-xs"></i>
                 </div>
             `;
             list.appendChild(btn);
@@ -4631,7 +4661,7 @@ function openSelectSuperiorModal(superiors) {
         broadcastBtn.className = 'w-full p-3 bg-blue-50 text-blue-600 font-bold rounded-xl border border-blue-100 hover:bg-blue-100 transition-colors text-xs uppercase tracking-widest mt-2';
         broadcastBtn.onclick = () => {
             modal.classList.add('hidden');
-            resolve(null); // Broadcast
+            resolve({ type: 'broadcast' });
         };
         broadcastBtn.innerHTML = '<i class="fa-solid fa-tower-broadcast mr-2"></i> Broadcast to All Online';
         list.appendChild(broadcastBtn);

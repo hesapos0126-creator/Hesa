@@ -359,38 +359,44 @@ app.get('/api/users/online', async (req, res) => {
 // Create approval request
 app.post('/api/approvals/request', async (req, res) => {
     try {
-        const { action, details, requesterUsername, requesterRole } = req.body;
+        const { action, details, requesterUsername, requesterRole, assignedUsername } = req.body;
         
         if (!action || !requesterUsername || !requesterRole) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        // Dynamically determine assignedRole based on online users
-        // Priority: 1) Online GM, 2) Online Admin
         let assignedRole = null;
+        let finalAssignedUsername = assignedUsername || null;
         
-        try {
-            // Check for online GM
-            const gmOnline = await User.findOne({ role: 'gm', isOnline: true });
-            if (gmOnline) {
-                assignedRole = 'gm';
-            } else {
-                // If no GM, check for online Admin
-                const adminOnline = await User.findOne({ role: 'admin', isOnline: true });
-                if (adminOnline) {
-                    assignedRole = 'admin';
-                }
+        // If a specific user was selected, find their role
+        if (finalAssignedUsername) {
+            const targetUser = await User.findOne({ username: finalAssignedUsername });
+            if (targetUser) {
+                assignedRole = targetUser.role;
             }
-        } catch (err) {
-            console.warn('[WARN] Error checking online users:', err);
+        }
+
+        // Fallback: Dynamically determine assignedRole if no specific user selected
+        if (!assignedRole) {
+            // Priority: 1) Online GM, 2) Online Admin
+            try {
+                const gmOnline = await User.findOne({ role: 'gm', isOnline: true });
+                if (gmOnline) {
+                    assignedRole = 'gm';
+                } else {
+                    const adminOnline = await User.findOne({ role: 'admin', isOnline: true });
+                    if (adminOnline) {
+                        assignedRole = 'admin';
+                    }
+                }
+            } catch (err) {
+                console.warn('[WARN] Error checking online users:', err);
+            }
         }
         
-        // If no one is online, default to 'gm' (requests will hold until someone comes online)
+        // Final fallback
         if (!assignedRole) {
             assignedRole = 'gm';
-            console.log(`[INFO] No online GM/Admin found. Routing approval request to GM (pending).`);
-        } else {
-            console.log(`[INFO] Routing approval request to: ${assignedRole}`);
         }
 
         const approvalRequest = new ApprovalRequest({
@@ -398,44 +404,43 @@ app.post('/api/approvals/request', async (req, res) => {
             details: details || {},
             requesterUsername,
             requesterRole,
-            assignedRole
+            assignedRole,
+            assignedUsername: finalAssignedUsername
         });
 
         await approvalRequest.save();
-        console.log(`[OK] Approval request created: ${approvalRequest._id} (assigned to ${assignedRole})`);
-        return res.json({ success: true, requestId: approvalRequest._id });
+        console.log(`[OK] Approval request created: ${approvalRequest._id} (Assigned to ${finalAssignedUsername || assignedRole})`);
+        return res.json({ success: true, requestId: approvalRequest._id, assignedRole, assignedUsername: finalAssignedUsername });
     } catch (err) {
         console.error('[ERROR] Create approval request error:', err);
         res.status(500).json({ error: 'Failed to create approval request', details: err.message });
     }
 });
 
-// Get pending approvals for a specific role
+// Get pending approvals for a specific role/user
 app.get('/api/approvals/pending', async (req, res) => {
     try {
-        const { role } = req.query;
+        const { role, username } = req.query;
         
         if (!role) {
-            console.log('[API] Missing role parameter');
             return res.status(400).json({ error: 'Role required' });
         }
 
-        console.log(`[API] Pending approvals requested for role: ${role}`);
-
-        // Case-insensitive role matching
         const normalizedRole = role.toLowerCase();
         
-        const pending = await ApprovalRequest.find({
-            assignedRole: normalizedRole,
-            status: 'PENDING'
-        }).lean();
+        // Find requests that are:
+        // 1. Assigned to this specific username
+        // 2. OR Assigned to this role AND no specific username is assigned
+        const query = {
+            status: 'PENDING',
+            $or: [
+                { assignedUsername: username },
+                { assignedRole: normalizedRole, assignedUsername: { $exists: false } },
+                { assignedRole: normalizedRole, assignedUsername: null }
+            ]
+        };
 
-        console.log(`[API] Found ${pending.length} pending request(s) for role: ${normalizedRole}`);
-        
-        if (pending.length > 0) {
-            console.log(`[API] First pending request:`, pending[0]._id);
-        }
-
+        const pending = await ApprovalRequest.find(query).lean();
         return res.json(pending);
     } catch (err) {
         console.error('[ERROR] Get pending approvals error:', err);

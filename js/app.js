@@ -299,7 +299,7 @@ window.checkManualNotifications = async function() {
             return;
         }
         
-        const res = await fetch('/api/approvals/pending?role=' + currentUser.role);
+        const res = await fetch(`/api/approvals/pending?role=${currentUser.role}&username=${currentUser.username}`);
         const data = await res.json();
         console.log('[GLOBAL] Pending approvals response:', data);
         
@@ -4532,8 +4532,34 @@ function checkApprovalRequired(action, userRole) {
  */
 async function requestApproval(action, details) {
     try {
-        console.log(`[DEBUG] Creating approval request for action: ${action} by ${currentUser.username}`);
+        console.log(`[DEBUG] Attempting to create approval request for action: ${action} by ${currentUser.username}`);
         
+        // Step 1: Fetch online superiors to select from
+        const onlineRes = await fetch('/api/users/online');
+        const onlineUsers = await onlineRes.json();
+        
+        // Filter for GM and Admin
+        const superiors = onlineUsers.filter(u => 
+            (u.role?.toLowerCase() === 'gm' || u.role?.toLowerCase() === 'admin') &&
+            u.username !== currentUser.username // Don't allow approving own request if they have high role
+        );
+
+        let selectedUsername = null;
+
+        if (superiors.length === 0) {
+            const proceed = confirm('⚠️ No GM or Admin is currently online. This request will be queued for the first superior who logs in. Do you want to proceed?');
+            if (!proceed) return null;
+        } else {
+            // Step 2: Show selection modal and wait for result
+            selectedUsername = await openSelectSuperiorModal(superiors);
+            window._lastSelectedSuperior = selectedUsername;
+            if (!selectedUsername && superiors.length > 0) {
+                console.log('[DEBUG] Approval request cancelled by user during superior selection');
+                return null; // Cancelled
+            }
+        }
+
+        // Step 3: Create the request on backend
         const response = await fetch('/api/approvals/request', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4541,8 +4567,8 @@ async function requestApproval(action, details) {
                 action: action,
                 details: details,
                 requesterUsername: currentUser.username,
-                requesterRole: currentUser.role
-                // Note: assignedRole is now determined by backend based on online users
+                requesterRole: currentUser.role,
+                assignedUsername: selectedUsername // This can be null (broadcast)
             })
         });
         
@@ -4556,10 +4582,80 @@ async function requestApproval(action, details) {
         return result.requestId;
     } catch (err) {
         console.error('[ERROR] Approval request failed:', err);
-        showNotification('Failed to create approval request: ' + err.message, 'error');
+        alert('Failed to create approval request: ' + err.message);
         return null;
     }
 }
+
+/**
+ * Open Select Superior Modal and wait for user selection
+ */
+function openSelectSuperiorModal(superiors) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('modal-select-superior');
+        const list = document.getElementById('superior-list');
+        if (!modal || !list) {
+            resolve(null);
+            return;
+        }
+
+        list.innerHTML = '';
+        
+        superiors.forEach(sup => {
+            const btn = document.createElement('button');
+            btn.className = 'w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-brand-gold/10 border border-gray-100 rounded-xl transition-all group';
+            btn.onclick = () => {
+                modal.classList.add('hidden');
+                resolve(sup.username);
+            };
+            
+            btn.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-white flex items-center justify-center text-sm font-bold border border-gray-100 group-hover:border-brand-gold text-brand-dark shadow-sm">
+                        ${sup.username.charAt(0).toUpperCase()}
+                    </div>
+                    <div class="text-left">
+                        <p class="font-bold text-gray-800 text-sm group-hover:text-brand-dark">${sup.username}</p>
+                        <p class="text-[10px] text-gray-500 uppercase font-black tracking-wider">${sup.role}</p>
+                    </div>
+                </div>
+                <div class="w-8 h-8 rounded-full bg-white flex items-center justify-center text-gray-400 group-hover:bg-brand-gold group-hover:text-white transition-colors">
+                    <i class="fa-solid fa-paper-plane text-xs"></i>
+                </div>
+            `;
+            list.appendChild(btn);
+        });
+
+        // Add "Broadcast to All" option
+        const broadcastBtn = document.createElement('button');
+        broadcastBtn.className = 'w-full p-3 bg-blue-50 text-blue-600 font-bold rounded-xl border border-blue-100 hover:bg-blue-100 transition-colors text-xs uppercase tracking-widest mt-2';
+        broadcastBtn.onclick = () => {
+            modal.classList.add('hidden');
+            resolve(null); // Broadcast
+        };
+        broadcastBtn.innerHTML = '<i class="fa-solid fa-tower-broadcast mr-2"></i> Broadcast to All Online';
+        list.appendChild(broadcastBtn);
+
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+
+        // Store resolve on window for cancel button
+        window._resolveSelection = resolve;
+    });
+}
+
+function closeSelectSuperiorModal() {
+    const modal = document.getElementById('modal-select-superior');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        if (window._resolveSelection) {
+            window._resolveSelection(null);
+            window._resolveSelection = null;
+        }
+    }
+}
+window.closeSelectSuperiorModal = closeSelectSuperiorModal;
 
 /**
  * Poll approval status for a given request
@@ -4630,6 +4726,10 @@ function openWaitingApprovalModal(assignedRole, requestId) {
     const modal = document.getElementById('modal-waiting-approval');
     if (modal) {
         document.getElementById('approval-assigned-role').textContent = assignedRole.toUpperCase();
+        const nameEl = document.getElementById('approval-assigned-name');
+        if (nameEl) {
+            nameEl.textContent = window._lastSelectedSuperior ? `(${window._lastSelectedSuperior})` : '(Broadcast)';
+        }
         document.getElementById('approval-request-id').value = requestId;
         modal.classList.remove('hidden');
         modal.classList.add('flex');
@@ -4874,7 +4974,7 @@ function startApprovalPolling() {
                 return;
             }
             
-            const response = await fetch(`/api/approvals/pending?role=${currentUser.role}`);
+            const response = await fetch(`/api/approvals/pending?role=${currentUser.role}&username=${currentUser.username}`);
             
             if (!response.ok) {
                 console.warn(`[POLLING] Bad response status: ${response.status}`);

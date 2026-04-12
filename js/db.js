@@ -121,6 +121,15 @@ const db = {
     },
     open() {
         return Promise.resolve();
+    },
+    // Mock dexie transaction to simply execute the callback
+    async transaction(mode, tables, callback) {
+        try {
+            return await callback();
+        } catch (e) {
+            console.error('[DB] Transaction error:', e);
+            throw e;
+        }
     }
 };
 

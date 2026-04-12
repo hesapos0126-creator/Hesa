@@ -2182,13 +2182,13 @@ function updateCartUI() {
         const sizeTag = item.size ? `<span class="px-1.5 py-0.5 rounded bg-gray-200 text-xs font-bold text-gray-700 ml-1">${item.size}</span>` : '';
 
         const div = document.createElement('div');
-        div.className = 'flex items-center gap-3 bg-gray-50 p-3 rounded-xl border border-gray-100';
+        div.className = 'flex items-center gap-3 bg-white p-4 rounded-xl border border-gray-100 shadow-sm';
         div.innerHTML = `
             <div class="flex-1">
-                <h5 class="font-bold text-sm text-gray-800">${item.name} (${item.color})${sizeTag}</h5>
-                <p class="text-xs text-gray-500">Rs ${itemPrice - itemDiscount} x ${item.qty}${extraDiscTag}</p>
+                <h5 class="font-black text-base text-gray-900 leading-tight">${item.name} (${item.color})${sizeTag}</h5>
+                <p class="text-sm text-gray-500 mt-0.5">Rs ${itemPrice - itemDiscount} x ${item.qty}${extraDiscTag}</p>
             </div>
-            <div class="font-bold text-sm mr-2">Rs ${itemTotal.toLocaleString()}</div>
+            <div class="font-black text-base mr-2 text-brand-dark">Rs ${itemTotal.toLocaleString()}</div>
             <div class="flex flex-col gap-1">
                 <button onclick="updateCartQty(${index}, 1)" class="w-6 h-6 rounded bg-white border border-gray-200 text-xs hover:bg-gray-100">+</button>
                 <button onclick="updateCartQty(${index}, -1)" class="w-6 h-6 rounded bg-white border border-gray-200 text-xs hover:bg-gray-100">-</button>

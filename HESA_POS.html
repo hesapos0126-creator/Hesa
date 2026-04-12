@@ -444,7 +444,7 @@
                 </div>
 
                 <!-- Cart (Right) -->
-                <div class="w-full lg:w-96 bg-white rounded-xl md:rounded-2xl shadow-lg border border-gray-100 flex flex-col h-full">
+                <div class="w-full lg:w-[480px] bg-white rounded-xl md:rounded-2xl shadow-lg border border-gray-100 flex flex-col h-full">
                     <div class="p-4 border-b border-gray-100 flex justify-between items-center">
                         <h3 class="font-bold text-lg">Current Order</h3>
                         <button onclick="clearCart()"
@@ -538,28 +538,16 @@
                         </div>
                         <div class="grid grid-cols-2 gap-3 mt-4">
                             <button onclick="clearCart()"
-                                class="py-3 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors border border-red-100 flex items-center justify-center gap-2">
+                                class="py-1.5 bg-red-50 text-red-600 font-bold rounded-xl hover:bg-red-100 transition-colors border border-red-100 flex items-center justify-center gap-2 text-sm">
                                 <i class="fa-solid fa-trash-can"></i> Clear
                             </button>
                             <button onclick="openCheckoutModal()"
-                                class="py-3 bg-brand-gold text-brand-dark font-black rounded-xl hover:brightness-110 transition-all shadow-lg shadow-brand-gold/20 flex items-center justify-center gap-2 animate-bounce-subtle">
+                                class="py-1.5 bg-brand-gold text-brand-dark font-black rounded-xl hover:brightness-110 transition-all shadow-lg shadow-brand-gold/20 flex items-center justify-center gap-2 text-sm">
                                 <i class="fa-solid fa-cash-register"></i> PAY NOW
                             </button>
                         </div>
                     </div>
-                    <div class="space-y-2 mt-4">
-                        <div class="relative mb-2">
-                            <div class="absolute left-3 top-1/2 -translate-y-1/2 text-blue-500">
-                                <i class="fa-solid fa-user-tag text-xs"></i>
-                            </div>
-                            <input type="text" id="pos-customer-name"
-                                class="w-full pl-8 pr-4 py-2 bg-blue-50 border border-blue-100 rounded-xl focus:outline-none focus:border-blue-500 font-bold text-xs"
-                                placeholder="Customer Name (for Remote Send)">
-                        </div>
-                        <button onclick="suspendCartFromPos()"
-                            class="w-full py-4 bg-white border-2 border-blue-500 text-blue-600 font-black rounded-xl hover:bg-blue-600 hover:text-white transition-all shadow-md flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-paper-plane"></i> SEND TO CASHIER (REMOTE)
-                        </button>
+                    <div class="mt-4 px-4 pb-4">
                         <button onclick="downloadLastBill()" id="btn-pos-download-last"
                             class="hidden w-full py-2 bg-white border border-gray-200 text-gray-600 font-medium rounded-xl hover:bg-gray-50 text-sm">
                             <i class="fa-solid fa-download mr-2"></i> Download Last Bill

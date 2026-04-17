@@ -1023,14 +1023,13 @@
 
                 <!-- Simplified Cart -->
                 <div class="col-span-1 lg:col-span-4 bg-gray-50 border-t lg:border-t-0 lg:border-l border-gray-100 p-3 md:p-6 flex flex-col">
-                    <div class="flex items-center justify-between mb-6">
-                        <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">
-                            <i class="fa-solid fa-list-check text-blue-500"></i> Scanned Items
-                        </h3>
-                        <button onclick="clearCart()"
-                            class="text-red-500 hover:bg-red-50 p-2 rounded-xl transition-all">
-                            <i class="fa-solid fa-trash-can"></i>
-                        </button>
+                    <div class="mb-4">
+                        <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Customer Name (Optional)</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-user absolute left-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>
+                            <input type="text" id="floor-customer-name" placeholder="Enter name for cashier..."
+                                class="w-full pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-blue-400 text-sm font-bold shadow-sm">
+                        </div>
                     </div>
 
                     <div id="floor-cart-items" class="flex-1 overflow-y-auto space-y-3 scroller-hide min-h-[300px]">
@@ -1567,6 +1566,15 @@
                 <p id="size-error" class="hidden text-xs text-red-500 mt-1">Please select a size!</p>
             </div>
 
+            <div class="mb-4">
+                <label class="block text-xs font-medium text-gray-500 mb-2">Quantity</label>
+                <div class="relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">Qty</span>
+                    <input type="number" id="item-modal-qty" min="1" value="1"
+                        class="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 text-lg font-bold transition-colors">
+                </div>
+            </div>
+
             <div class="mb-5">
                 <label class="block text-xs font-medium text-gray-500 mb-2">Item Discount</label>
 
@@ -1600,7 +1608,7 @@
                     class="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 font-medium transition-colors">
                     <i class="fa-solid fa-times mr-1"></i> Cancel
                 </button>
-                <button type="button" onclick="confirmItemDiscount()"
+                <button type="button" onclick="confirmItemDiscount()" id="btn-item-confirm"
                     class="flex-1 py-2.5 bg-brand-gold text-brand-dark font-bold rounded-xl hover:bg-yellow-500 transition-colors shadow-md shadow-yellow-300/40">
                     <i class="fa-solid fa-cart-plus mr-1"></i> Add to Cart
                 </button>

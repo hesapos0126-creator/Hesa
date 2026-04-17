@@ -1860,8 +1860,9 @@ function handleCustomItemAdd(e) {
 }
 
 
-function openItemDiscountModal(product) {
+function openItemDiscountModal(product, editIndex = -1) {
     const modal = document.getElementById('modal-item-discount');
+    modal._editIndex = editIndex;
     document.getElementById('item-discount-name').textContent = product.name;
     document.getElementById('item-discount-base').textContent = `Rs ${product.price}`;
     document.getElementById('item-extra-discount').value = product.discount || 0;
@@ -1947,6 +1948,23 @@ function openItemDiscountModal(product) {
             sizeContainer.classList.add('hidden');
             modal._requiresSize = false;
         }
+    }
+
+    // If editing, try to pre-select color/size if they exist
+    if (editIndex > -1) {
+        const item = (currentView === 'floor-sales' ? floorCart : cart)[editIndex];
+        if (item.color) {
+            colorSelect.value = item.color;
+            updatePosSizeOptions(item.color, product);
+        }
+        if (item.size) {
+            sizeSelect.value = item.size;
+        }
+        document.getElementById('item-modal-qty').value = item.qty || 1;
+        document.getElementById('btn-item-confirm').innerHTML = '<i class="fa-solid fa-check mr-2"></i> Update Item';
+    } else {
+        document.getElementById('item-modal-qty').value = 1;
+        document.getElementById('btn-item-confirm').innerHTML = '<i class="fa-solid fa-cart-plus mr-2"></i> Add to Cart';
     }
 
     modal.classList.remove('hidden');
@@ -2084,40 +2102,55 @@ function confirmItemDiscount() {
     }
 
     const activeCart = currentView === 'floor-sales' ? floorCart : cart;
-
-    // Add unique entry based on ID AND Size AND Color
-    const existingIndex = activeCart.findIndex(item => item.id === product.id && item.size === selectedSize && item.color === selectedColor);
+    const editIndex = modal._editIndex;
 
     let variantKey = selectedColor && selectedSize ? `${selectedColor} - ${selectedSize}` : (selectedSize || selectedColor || '');
     if (!variantKey && product.sizeStock && Object.keys(product.sizeStock).length > 0) {
-        // Fallback for tricky scenarios
         variantKey = Object.keys(product.sizeStock)[0];
     }
-
     const availableStock = product.sizeStock && variantKey && product.sizeStock[variantKey] !== undefined ? product.sizeStock[variantKey] : product.stock;
 
-    if (existingIndex > -1) {
-        const existing = activeCart[existingIndex];
-        if (existing.qty >= availableStock) {
-            alert(`Out of stock! Only ${availableStock} available for variant.`);
-            return;
-        }
-        existing.qty++;
-        // Update to new discount if user changed it
-        existing.cartDiscount = appliedDiscount;
-    } else {
-        if (availableStock <= 0) {
-            alert('Out of stock for this variant!');
-            return;
-        }
-        activeCart.push({
+    const modalQty = parseInt(document.getElementById('item-modal-qty').value) || 1;
+    if (modalQty < 1) { alert('Invalid quantity'); return; }
+
+    if (modalQty > availableStock && !product.isCustom) {
+        alert(`Max stock reached! Only ${availableStock} available for this variant.`);
+        return;
+    }
+
+    if (editIndex > -1) {
+        // Edit mode: replace existing item
+        activeCart[editIndex] = {
             ...product,
-            qty: 1,
+            qty: modalQty,
             cartDiscount: appliedDiscount,
             size: selectedSize || '',
             color: selectedColor || product.color || '',
             displayStock: availableStock
-        });
+        };
+    } else {
+        // Add mode: unique entry based on ID AND Size AND Color
+        const existingIndex = activeCart.findIndex(item => item.id === product.id && item.size === selectedSize && item.color === selectedColor);
+
+        if (existingIndex > -1) {
+            const existing = activeCart[existingIndex];
+            const newQty = existing.qty + modalQty;
+            if (newQty > availableStock && !product.isCustom) {
+                alert(`Cannot add more than ${availableStock} for this variant.`);
+                return;
+            }
+            existing.qty = newQty;
+            existing.cartDiscount = appliedDiscount;
+        } else {
+            activeCart.push({
+                ...product,
+                qty: modalQty,
+                cartDiscount: appliedDiscount,
+                size: selectedSize || '',
+                color: selectedColor || product.color || '',
+                displayStock: availableStock
+            });
+        }
     }
 
     closeItemDiscountModal();
@@ -2134,11 +2167,18 @@ function confirmItemDiscount() {
 // So addToCart just opens modal always.
 
 function addToCart(product) {
-    if (product.stock <= 0) {
+    if (product.stock <= 0 && !product.isCustom) {
         alert("Out of stock!");
         return;
     }
     openItemDiscountModal(product);
+}
+
+function editCartItem(index) {
+    const activeCart = currentView === 'floor-sales' ? floorCart : cart;
+    if (activeCart[index]) {
+        openItemDiscountModal(activeCart[index], index);
+    }
 }
 
 function removeFromCart(index) {
@@ -2204,6 +2244,14 @@ function updateCartUI() {
                 <button onclick="updateCartQty(${index}, 1)" class="w-6 h-6 rounded bg-white border border-gray-200 text-xs hover:bg-gray-100">+</button>
                 <button onclick="updateCartQty(${index}, -1)" class="w-6 h-6 rounded bg-white border border-gray-200 text-xs hover:bg-gray-100">-</button>
             </div>
+            <div class="flex flex-col gap-1 ml-1 align-center">
+                <button onclick="editCartItem(${index})" class="w-6 h-6 rounded bg-blue-50 text-blue-600 border border-blue-100 text-[10px] hover:bg-blue-100 flex items-center justify-center" title="Edit Item">
+                    <i class="fa-solid fa-pen"></i>
+                </button>
+                <button onclick="removeFromCart(${index})" class="w-6 h-6 rounded bg-red-50 text-red-500 border border-red-100 text-[10px] hover:bg-red-100 flex items-center justify-center" title="Remove Item">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
         `;
         container.appendChild(div);
     });
@@ -2241,12 +2289,20 @@ function updateCartUI() {
                     <p class="text-xs text-gray-500">Rs ${itemPrice - itemDiscount} x ${item.qty}</p>
                 </div>
                 <div class="font-bold text-sm mr-2 text-blue-600">Rs ${itemTotal.toLocaleString()}</div>
-                <div class="flex flex-col gap-1">
-                    <button onclick="updateCartQty(${index}, 1)" class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors">
-                        <i class="fa-solid fa-plus text-[10px]"></i>
+                <div class="flex items-center gap-2">
+                    <button onclick="editCartItem(${index})" class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors flex items-center justify-center" title="Edit Item">
+                        <i class="fa-solid fa-pen-to-square text-[10px]"></i>
                     </button>
-                    <button onclick="updateCartQty(${index}, -1)" class="w-7 h-7 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors">
-                        <i class="fa-solid fa-minus text-[10px]"></i>
+                    <button onclick="removeFromCart(${index})" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors flex items-center justify-center" title="Remove Item">
+                        <i class="fa-solid fa-trash-can text-[10px]"></i>
+                    </button>
+                </div>
+                <div class="flex flex-col gap-1 ml-1 border-l border-gray-100 pl-2">
+                    <button onclick="updateCartQty(${index}, 1)" class="w-6 h-6 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors flex items-center justify-center">
+                        <i class="fa-solid fa-plus text-[8px]"></i>
+                    </button>
+                    <button onclick="updateCartQty(${index}, -1)" class="w-6 h-6 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors flex items-center justify-center">
+                        <i class="fa-solid fa-minus text-[8px]"></i>
                     </button>
                 </div>
             `;

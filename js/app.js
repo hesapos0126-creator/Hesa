@@ -5668,9 +5668,7 @@ async function loadSentFloorCarts() {
 
     try {
         // Fetch pending carts for the current user
-        const carts = await db.pending_carts.toArray({
-            where: { field: 'senderName', op: 'equals', value: currentUser.username }
-        });
+        const carts = await db.pending_carts.where('senderName').equals(currentUser.username).toArray();
 
         if (!carts || carts.length === 0) {
             historyDiv.innerHTML = '<p class="text-[10px] text-gray-400 italic text-center py-2">No active sent carts</p>';
@@ -5696,11 +5694,11 @@ async function loadSentFloorCarts() {
                 </div>
                 <p class="text-[9px] text-gray-400 truncate mb-2">${itemPreview}</p>
                 <div class="flex gap-2 border-t border-gray-50 pt-2">
-                    <button onclick="editSentCart('${c._id || c.id}')" 
+                    <button onclick="editSentCart(${c.id})" 
                         class="flex-1 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-bold hover:bg-blue-100 transition-colors">
                         <i class="fa-solid fa-pen-to-square mr-1"></i> Edit
                     </button>
-                    <button onclick="deleteSentCart('${c._id || c.id}')" 
+                    <button onclick="deleteSentCart(${c.id})" 
                         class="flex-1 py-1 bg-red-50 text-red-600 rounded-lg text-[10px] font-bold hover:bg-red-100 transition-colors">
                         <i class="fa-solid fa-trash-can mr-1"></i> Delete
                     </button>
